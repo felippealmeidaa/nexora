@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    *,
+    *::before,
+    *::after {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(99, 102, 241, 0.3) transparent;
+    }
+
+    *::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+
+    *::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    *::-webkit-scrollbar-thumb {
+        background: rgba(99, 102, 241, 0.25);
+        border-radius: 100px;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+        background: rgba(99, 102, 241, 0.4);
+    }
+
+    ::selection {
+        background: rgba(99, 102, 241, 0.3);
+        color: #e2e8f0;
+    }
+
+    html {
+        scroll-behavior: smooth;
+    }
+
+    body {
+        @apply bg-bg-primary text-gray-100 font-sans antialiased;
+        background-image:
+            radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.04) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 20%, rgba(168, 85, 247, 0.03) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 80%, rgba(34, 211, 238, 0.02) 0%, transparent 50%);
+        min-height: 100vh;
+    }
+}
+
+@layer components {
+    .glass-card {
+        @apply bg-bg-card border border-border-subtle rounded-2xl shadow-card;
+        backdrop-filter: blur(20px) saturate(1.2);
+        transition: all 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+
+    .glass-card:hover {
+        @apply border-border-hover shadow-card-hover;
+        background: rgba(15, 22, 40, 0.75);
+    }
+
+    .glass-card-static {
+        @apply bg-bg-card border border-border-subtle rounded-2xl shadow-card;
+        backdrop-filter: blur(20px) saturate(1.2);
+    }
+
+    .btn-primary {
+        @apply bg-gradient-to-r from-accent-blue to-accent-purple text-white font-semibold py-2.5 px-5 rounded-xl shadow-glow-sm;
+        transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+
+    .btn-primary:hover {
+        @apply shadow-glow scale-[1.02];
+        filter: brightness(1.1);
+    }
+
+    .btn-primary:active {
+        @apply scale-[0.98];
+    }
+
+    .gradient-text {
+        @apply bg-gradient-to-r from-accent-blue via-accent-purple to-accent-cyan bg-clip-text text-transparent;
+        background-size: 200% auto;
+    }
+
+    .gradient-text-blue {
+        @apply bg-gradient-to-r from-accent-blue-light to-accent-blue bg-clip-text text-transparent;
+    }
+
+    .glow-border {
+        position: relative;
+    }
+
+    .glow-border::after {
+        content: '';
+        position: absolute;
+        inset: -1px;
+        border-radius: inherit;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), transparent 40%, transparent 60%, rgba(168, 85, 247, 0.15));
+        z-index: -1;
+        opacity: 0;
+        transition: opacity 0.4s ease;
+    }
+
+    .glow-border:hover::after {
+        opacity: 1;
+    }
+
+    .animate-count-up {
+        animation: count-up 0.8s ease-out forwards;
+    }
+
+    @keyframes count-up {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Grid pattern overlay for futuristic effect */
+    .grid-pattern {
+        background-image:
+            linear-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(99, 102, 241, 0.03) 1px, transparent 1px);
+        background-size: 40px 40px;
+    }
+}
