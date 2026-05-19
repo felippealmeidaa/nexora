@@ -96,8 +96,14 @@ export function AuthCard({
         >
             <div className="glass-card-static p-8 sm:p-10">
                 <div className="mb-8 text-center">
-                    <div className={clsx('mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-glow-sm', toneMap[tone] || toneMap.blue)}>
-                        {Icon ? <Icon className="h-6 w-6" /> : <BrandLogo compact symbolOnly className="h-8" />}
+                    <div className={clsx('mx-auto flex h-16 w-16 items-center justify-center rounded-[22px] bg-gradient-to-br text-white shadow-glow-sm', toneMap[tone] || toneMap.blue)}>
+                        {Icon ? (
+                            <Icon className="h-6 w-6" />
+                        ) : (
+                            <div className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-white/96 shadow-[0_12px_24px_-16px_rgba(15,23,42,0.55)] ring-1 ring-white/80">
+                                <BrandLogo compact symbolOnly className="h-7" />
+                            </div>
+                        )}
                     </div>
                     <h1 className="mt-4 text-2xl font-bold gradient-text">{title}</h1>
                     {subtitle && (
