@@ -30,7 +30,7 @@ from app.models.scraped_data import (
     ScrapedSubject,
 )
 from app.models.historical_data import HistoricalRecord  # noqa: F401
-from app.utils.attendance import normalize_attendance_record, resolve_attendance_percentage, resolve_total_classes
+from app.utils.attendance import normalize_attendance_record, normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
 from app.routers import (
     analytics,
     attendance,
@@ -485,24 +485,24 @@ def repair_scraped_attendance_data(db):
     rows = db.query(ScrapedAttendance).all()
     updated = 0
 
+    rows_by_student = {}
     for row in rows:
-        attendance_payload = normalize_attendance_record(
-            row.total_faltas,
-            row.total_aulas,
-            row.percentual_presenca,
-        )
+        rows_by_student.setdefault(row.student_id, []).append(row)
 
-        if row.total_faltas != attendance_payload["total_faltas"]:
-            row.total_faltas = attendance_payload["total_faltas"]
-            updated += 1
+    for student_rows in rows_by_student.values():
+        normalized_attendance = normalize_attendance_records(student_rows)
+        for row, attendance_payload in zip(student_rows, normalized_attendance):
+            if row.total_faltas != attendance_payload["total_faltas"]:
+                row.total_faltas = attendance_payload["total_faltas"]
+                updated += 1
 
-        if attendance_payload["total_aulas"] is not None and row.total_aulas != attendance_payload["total_aulas"]:
-            row.total_aulas = attendance_payload["total_aulas"]
-            updated += 1
+            if attendance_payload["total_aulas"] is not None and row.total_aulas != attendance_payload["total_aulas"]:
+                row.total_aulas = attendance_payload["total_aulas"]
+                updated += 1
 
-        if attendance_payload["percentual_presenca"] is not None and abs((row.percentual_presenca or 0.0) - attendance_payload["percentual_presenca"]) > 0.01:
-            row.percentual_presenca = attendance_payload["percentual_presenca"]
-            updated += 1
+            if attendance_payload["percentual_presenca"] is not None and abs((row.percentual_presenca or 0.0) - attendance_payload["percentual_presenca"]) > 0.01:
+                row.percentual_presenca = attendance_payload["percentual_presenca"]
+                updated += 1
 
     if updated:
         db.commit()

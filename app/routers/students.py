@@ -20,7 +20,7 @@ from app.schemas.student import StudentCreate, StudentUpdate, StudentResponse, S
 from app.security.auth import get_current_user
 from app.security.audit import audit_logger
 from app.services.analytics_service import AnalyticsService
-from app.utils.attendance import normalize_attendance_record, resolve_attendance_percentage, resolve_total_classes
+from app.utils.attendance import normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
 
 logger = logging.getLogger(__name__)
 
@@ -146,13 +146,10 @@ def get_my_attendance(
 
     scraped = db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student.id).all()
 
+    normalized_attendance = normalize_attendance_records(scraped)
+
     attendance_by_subject = []
-    for a in scraped:
-        attendance_payload = normalize_attendance_record(
-            a.total_faltas,
-            a.total_aulas,
-            a.percentual_presenca,
-        )
+    for a, attendance_payload in zip(scraped, normalized_attendance):
         attendance_by_subject.append({
             "disciplina": a.disciplina,
             "total_faltas": attendance_payload["total_faltas"],
@@ -487,13 +484,9 @@ def get_student_detail(
 
     # Frequência scraped
     scraped_att = db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student.id).all()
+    normalized_attendance = normalize_attendance_records(scraped_att)
     attendance = []
-    for a in scraped_att:
-        attendance_payload = normalize_attendance_record(
-            a.total_faltas,
-            a.total_aulas,
-            a.percentual_presenca,
-        )
+    for a, attendance_payload in zip(scraped_att, normalized_attendance):
         attendance.append({
             "disciplina": a.disciplina,
             "total_faltas": attendance_payload["total_faltas"],

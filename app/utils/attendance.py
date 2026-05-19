@@ -1,6 +1,8 @@
 import math
 import re
 
+DEFAULT_TOTAL_CLASSES = 60
+
 
 def _parse_numeric(value):
     if value is None:
@@ -20,6 +22,12 @@ def _parse_numeric(value):
         return float(cleaned)
     except ValueError:
         return None
+
+
+def _get_value(record, key):
+    if isinstance(record, dict):
+        return record.get(key)
+    return getattr(record, key, None)
 
 
 def resolve_total_classes(total_aulas=None, total_faltas=None, percentual_presenca=None):
@@ -70,13 +78,26 @@ def resolve_attendance_percentage(percentual_presenca, total_faltas=None, total_
     if impossible_counters:
         return round(direct, 2)
 
-    if derived is not None and direct == 0.0:
+    if derived is not None and (direct == 0.0 or (direct >= 99.9 and absences is not None and absences > 0)):
         return round(derived, 2)
 
     return round(direct, 2)
 
 
-def normalize_attendance_record(total_faltas=None, total_aulas=None, percentual_presenca=None):
+def infer_total_classes_baseline(records, fallback=DEFAULT_TOTAL_CLASSES):
+    parsed_classes = []
+    for record in records or []:
+        classes = _parse_numeric(_get_value(record, 'total_aulas'))
+        if classes is not None and classes >= 40:
+            parsed_classes.append(int(round(classes)))
+
+    if parsed_classes:
+        return max(parsed_classes)
+
+    return fallback
+
+
+def normalize_attendance_record(total_faltas=None, total_aulas=None, percentual_presenca=None, baseline_total_classes=None):
     absences = _parse_numeric(total_faltas)
     classes = _parse_numeric(total_aulas)
     percentage = _parse_numeric(percentual_presenca)
@@ -95,38 +116,49 @@ def normalize_attendance_record(total_faltas=None, total_aulas=None, percentual_
     elif classes is not None:
         classes = int(round(classes))
 
-    ambiguous_absences = False
-    expected_absences = None
-    if percentage is not None and classes is not None and classes > 0:
-        expected_absences = max(0, min(classes, int(round(classes * (1 - (percentage / 100.0))))))
+    if baseline_total_classes is not None:
+        baseline_total_classes = int(round(baseline_total_classes))
 
-        if absences is None:
-            absences = float(expected_absences)
-        else:
-            derived = max(0.0, min(100.0, ((classes - absences) / classes) * 100.0))
-            impossible_counters = absences > classes or (absences == classes and percentage > 0.0)
-            if impossible_counters:
-                ambiguous_absences = True
-            elif percentage > 0.0 and abs(percentage - derived) > 25.0:
-                ambiguous_absences = True
-
-    likely_partial_load_counter = (
-        not ambiguous_absences
-        and absences == 0
+    if (
+        baseline_total_classes
         and percentage is not None
         and percentage >= 99.9
         and classes is not None
-        and 0 < classes < 20
-    )
+        and classes < baseline_total_classes
+    ):
+        if absences is None:
+            absences = float(classes)
+            classes = baseline_total_classes
+        elif classes == int(round(absences)):
+            classes = baseline_total_classes
 
-    if ambiguous_absences or likely_partial_load_counter:
-        absences = None
+    ambiguous_absences = False
+    if percentage is not None and classes is not None and classes > 0 and absences is not None:
+        derived = max(0.0, min(100.0, ((classes - absences) / classes) * 100.0))
+        impossible_counters = absences > classes or (absences == classes and percentage > 0.0)
+        if impossible_counters:
+            ambiguous_absences = True
+        elif percentage > 0.0 and percentage < 99.9 and abs(percentage - derived) > 25.0:
+            ambiguous_absences = True
 
     resolved_percentage = resolve_attendance_percentage(percentage, absences, classes)
 
     return {
-        'total_faltas': int(round(absences)) if absences is not None else None,
+        'total_faltas': int(round(absences)) if absences is not None and not ambiguous_absences else None,
         'total_aulas': int(round(classes)) if classes is not None else None,
         'percentual_presenca': resolved_percentage,
-        'faltas_confirmadas': absences is not None,
+        'faltas_confirmadas': absences is not None and not ambiguous_absences,
     }
+
+
+def normalize_attendance_records(records, baseline_total_classes=None):
+    baseline = baseline_total_classes or infer_total_classes_baseline(records)
+    return [
+        normalize_attendance_record(
+            _get_value(record, 'total_faltas'),
+            _get_value(record, 'total_aulas'),
+            _get_value(record, 'percentual_presenca'),
+            baseline_total_classes=baseline,
+        )
+        for record in (records or [])
+    ]
