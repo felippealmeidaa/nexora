@@ -20,7 +20,7 @@ from app.schemas.student import StudentCreate, StudentUpdate, StudentResponse, S
 from app.security.auth import get_current_user
 from app.security.audit import audit_logger
 from app.services.analytics_service import AnalyticsService
-from app.utils.attendance import resolve_attendance_percentage, resolve_total_classes
+from app.utils.attendance import normalize_attendance_record, resolve_attendance_percentage, resolve_total_classes
 
 logger = logging.getLogger(__name__)
 
@@ -148,11 +148,16 @@ def get_my_attendance(
 
     attendance_by_subject = []
     for a in scraped:
+        total_faltas, total_aulas, percentual_presenca = normalize_attendance_record(
+            a.total_faltas,
+            a.total_aulas,
+            a.percentual_presenca,
+        )
         attendance_by_subject.append({
             "disciplina": a.disciplina,
-            "total_faltas": a.total_faltas,
-            "total_aulas": resolve_total_classes(a.total_aulas, a.total_faltas, a.percentual_presenca),
-            "percentual_presenca": resolve_attendance_percentage(a.percentual_presenca, a.total_faltas, a.total_aulas),
+            "total_faltas": total_faltas,
+            "total_aulas": total_aulas,
+            "percentual_presenca": percentual_presenca,
         })
 
     return {
@@ -481,15 +486,19 @@ def get_student_detail(
 
     # Frequência scraped
     scraped_att = db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student.id).all()
-    attendance = [
-        {
+    attendance = []
+    for a in scraped_att:
+        total_faltas, total_aulas, percentual_presenca = normalize_attendance_record(
+            a.total_faltas,
+            a.total_aulas,
+            a.percentual_presenca,
+        )
+        attendance.append({
             "disciplina": a.disciplina,
-            "total_faltas": a.total_faltas,
-            "total_aulas": resolve_total_classes(a.total_aulas, a.total_faltas, a.percentual_presenca),
-            "percentual_presenca": resolve_attendance_percentage(a.percentual_presenca, a.total_faltas, a.total_aulas),
-        }
-        for a in scraped_att
-    ]
+            "total_faltas": total_faltas,
+            "total_aulas": total_aulas,
+            "percentual_presenca": percentual_presenca,
+        })
 
     scraped_subjects = db.query(ScrapedSubject).filter(ScrapedSubject.student_id == student.id).all()
     subjects = [

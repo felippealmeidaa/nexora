@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.utils.attendance import resolve_attendance_percentage, resolve_total_classes
+from app.utils.attendance import normalize_attendance_record, resolve_attendance_percentage, resolve_total_classes
 from app.utils.subject_name import clean_subject_name, normalize_subject_key
 
 logger = logging.getLogger(__name__)
@@ -485,13 +485,18 @@ class LyceumScraperService:
 
         db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student_id).delete()
         for attendance in attendance_data:
+            total_faltas, total_aulas, percentual_presenca = normalize_attendance_record(
+                attendance.get("total_faltas", 0),
+                attendance.get("total_aulas"),
+                attendance.get("percentual_presenca", 100.0),
+            )
             db.add(
                 ScrapedAttendance(
                     student_id=student_id,
                     disciplina=clean_subject_name(attendance.get("disciplina", "")),
-                    total_faltas=attendance.get("total_faltas", 0),
-                    total_aulas=resolve_total_classes(attendance.get("total_aulas"), attendance.get("total_faltas", 0), attendance.get("percentual_presenca", 100.0)),
-                    percentual_presenca=resolve_attendance_percentage(attendance.get("percentual_presenca", 100.0), attendance.get("total_faltas", 0), attendance.get("total_aulas")) or 100.0,
+                    total_faltas=total_faltas or 0,
+                    total_aulas=total_aulas,
+                    percentual_presenca=percentual_presenca or 100.0,
                 )
             )
         db.commit()

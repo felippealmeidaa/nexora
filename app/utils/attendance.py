@@ -35,7 +35,7 @@ def resolve_total_classes(total_aulas=None, total_faltas=None, percentual_presen
 
     attendance = max(0.0, min(100.0, attendance))
     if attendance >= 100.0:
-        return 0 if absences and absences > 0 else None
+        return None
 
     absence_ratio = 1 - (attendance / 100.0)
     if absence_ratio <= 0:
@@ -61,7 +61,55 @@ def resolve_attendance_percentage(percentual_presenca, total_faltas=None, total_
         return round(derived, 2) if derived is not None else None
 
     direct = max(0.0, min(100.0, direct))
-    if derived is not None and (direct == 0.0 or abs(direct - derived) > 25):
+    impossible_counters = (
+        classes is not None
+        and absences is not None
+        and (absences > classes or (absences == classes and direct > 0.0))
+    )
+
+    if impossible_counters:
+        return round(direct, 2)
+
+    if derived is not None and direct == 0.0:
         return round(derived, 2)
 
     return round(direct, 2)
+
+
+def normalize_attendance_record(total_faltas=None, total_aulas=None, percentual_presenca=None):
+    absences = _parse_numeric(total_faltas)
+    classes = _parse_numeric(total_aulas)
+    percentage = _parse_numeric(percentual_presenca)
+
+    if percentage is not None:
+        percentage = max(0.0, min(100.0, percentage))
+
+    if classes is not None and classes <= 0:
+        classes = None
+
+    if absences is not None and absences < 0:
+        absences = 0.0
+
+    if classes is None:
+        classes = resolve_total_classes(classes, absences, percentage)
+    elif classes is not None:
+        classes = int(round(classes))
+
+    if percentage is not None and classes is not None and classes > 0:
+        expected_absences = max(0, min(classes, int(round(classes * (1 - (percentage / 100.0))))))
+
+        if absences is None:
+            absences = float(expected_absences)
+        else:
+            derived = max(0.0, min(100.0, ((classes - absences) / classes) * 100.0))
+            impossible_counters = absences > classes or (absences == classes and percentage > 0.0)
+            if impossible_counters or (percentage > 0.0 and abs(percentage - derived) > 25.0):
+                absences = float(expected_absences)
+
+    resolved_percentage = resolve_attendance_percentage(percentage, absences, classes)
+
+    return (
+        int(round(absences)) if absences is not None else None,
+        int(round(classes)) if classes is not None else None,
+        resolved_percentage,
+    )

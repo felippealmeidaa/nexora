@@ -30,7 +30,7 @@ from app.models.scraped_data import (
     ScrapedSubject,
 )
 from app.models.historical_data import HistoricalRecord  # noqa: F401
-from app.utils.attendance import resolve_attendance_percentage, resolve_total_classes
+from app.utils.attendance import normalize_attendance_record, resolve_attendance_percentage, resolve_total_classes
 from app.routers import (
     analytics,
     attendance,
@@ -486,8 +486,15 @@ def repair_scraped_attendance_data(db):
     updated = 0
 
     for row in rows:
-        normalized_total = resolve_total_classes(row.total_aulas, row.total_faltas, row.percentual_presenca)
-        normalized_percentage = resolve_attendance_percentage(row.percentual_presenca, row.total_faltas, row.total_aulas)
+        normalized_absences, normalized_total, normalized_percentage = normalize_attendance_record(
+            row.total_faltas,
+            row.total_aulas,
+            row.percentual_presenca,
+        )
+
+        if normalized_absences is not None and row.total_faltas != normalized_absences:
+            row.total_faltas = normalized_absences
+            updated += 1
 
         if normalized_total is not None and row.total_aulas != normalized_total:
             row.total_aulas = normalized_total
