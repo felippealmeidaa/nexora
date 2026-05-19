@@ -33,14 +33,8 @@ export function StudentDashboard() {
     const [attendance, setAttendance] = useState(null);
     const [schedule, setSchedule] = useState(null);
     const [analytics, setAnalytics] = useState(null);
-    const [aiInsights, setAiInsights] = useState(() => {
-        try {
-            const cached = localStorage.getItem(`sima_insights_${user?.id}`);
-            return cached ? JSON.parse(cached) : null;
-        } catch {
-            return null;
-        }
-    });
+    const insightsCacheKey = useMemo(() => (user?.id ? `sima_insights_${user.id}` : null), [user?.id]);
+    const [aiInsights, setAiInsights] = useState(null);
     const [loading, setLoading] = useState(true);
     const [loadingInsights, setLoadingInsights] = useState(false);
     const [syncStatus, setSyncStatus] = useState('idle');
@@ -80,7 +74,9 @@ export function StudentDashboard() {
         try {
             const response = await api.get('/analytics/me/ai-insights');
             setAiInsights(response.data);
-            localStorage.setItem(`sima_insights_${user?.id}`, JSON.stringify(response.data));
+            if (insightsCacheKey) {
+                localStorage.setItem(insightsCacheKey, JSON.stringify(response.data));
+            }
         } catch (error) {
             console.error('Erro ao buscar insights', error);
         } finally {
@@ -148,6 +144,42 @@ export function StudentDashboard() {
             setSavingPassword(false);
         }
     };
+
+    useEffect(() => {
+        setProfile(null);
+        setGrades(null);
+        setAttendance(null);
+        setSchedule(null);
+        setAnalytics(null);
+        setAiInsights(null);
+        setLoading(true);
+        setLoadingInsights(false);
+        setSyncStatus('idle');
+        setLastSyncAt(null);
+        setSyncError(null);
+        setHasCredentials(false);
+        autoSyncTriggered.current = false;
+
+        if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+        }
+    }, [user?.id]);
+
+    useEffect(() => {
+        if (!insightsCacheKey) {
+            setAiInsights(null);
+            return;
+        }
+
+        try {
+            const cached = localStorage.getItem(insightsCacheKey);
+            setAiInsights(cached ? JSON.parse(cached) : null);
+            localStorage.removeItem('sima_insights_undefined');
+        } catch {
+            setAiInsights(null);
+        }
+    }, [insightsCacheKey]);
 
     useEffect(() => {
         fetchStudentData();
@@ -570,3 +602,6 @@ function formatDate(value) {
         minute: '2-digit',
     });
 }
+
+
+

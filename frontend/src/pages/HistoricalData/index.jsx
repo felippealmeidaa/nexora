@@ -139,6 +139,9 @@ export function HistoricalData() {
     const highlightedTopics = workspace?.analysis_data?.risk_topics?.slice(0, 4) || [];
     const highRiskClasses = workspace?.analysis_data?.high_risk_classes?.slice(0, 4) || [];
     const uploadSummary = uploadStatus?.payload?.summary;
+    const uploadWarnings = uploadStatus?.payload?.warnings || [];
+    const uploadNormalizationSteps = uploadStatus?.payload?.normalization_steps || [];
+    const organizedUploadGroups = uploadStatus?.payload?.class_groups?.slice(0, 6) || [];
     const totalRecords = workspace?.overview?.total_records || 0;
     const analysisRoute = buildRolePath(user?.role, 'analysis-center');
 
@@ -152,6 +155,7 @@ export function HistoricalData() {
         'Converte CSV, XLSX, TXT e PDF para uma estrutura unica antes da leitura analitica.',
         'Agrupa os registros por turma, curso e semestre para facilitar a leitura docente.',
     ]), []);
+    const normalizationChecklist = uploadNormalizationSteps.length ? uploadNormalizationSteps : normalizationSteps;
 
     return (
         <div className="space-y-6">
@@ -213,7 +217,7 @@ export function HistoricalData() {
                         icon={Upload}
                     />
                     <div className="space-y-3">
-                        {normalizationSteps.map((step) => (
+                        {normalizationChecklist.map((step) => (
                             <div key={step} className="rounded-[22px] border border-border-subtle bg-white/75 px-4 py-4 text-sm leading-6 text-text-secondary">
                                 {step}
                             </div>
@@ -296,6 +300,47 @@ export function HistoricalData() {
                             {uploadStatus.payload.subjects.map((subject) => (
                                 <Badge key={subject} variant="neutral">{subject}</Badge>
                             ))}
+                        </div>
+                    )}
+
+                    {uploadWarnings.length > 0 && (
+                        <div className="mt-4 rounded-[24px] border border-warning/20 bg-warning/5 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-warning">Avisos de normalizacao</p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                                {uploadWarnings.map((warning) => (
+                                    <Badge key={warning} variant="warning">{warning}</Badge>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {organizedUploadGroups.length > 0 && (
+                        <div className="mt-4 rounded-[24px] border border-border-subtle bg-bg-secondary/35 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-tertiary">Turmas organizadas no upload</p>
+                                    <p className="mt-1 text-sm text-text-secondary">Resumo imediato das turmas reconhecidas antes mesmo de abrir a analise profunda.</p>
+                                </div>
+                                <Badge variant="info">{organizedUploadGroups.length} visiveis</Badge>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                {organizedUploadGroups.map((group) => (
+                                    <div key={group.key} className="rounded-[20px] border border-border-subtle bg-white/85 p-4">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Badge variant="neutral">{group.semester}</Badge>
+                                            <Badge variant="info">{group.course_name}</Badge>
+                                            <Badge variant="neutral">{group.period_label}</Badge>
+                                        </div>
+                                        <p className="mt-3 text-sm font-semibold text-text-primary">{group.subject}</p>
+                                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-text-secondary">
+                                            <div>Alunos: <span className="font-semibold text-text-primary">{group.student_count}</span></div>
+                                            <div>Em alerta: <span className="font-semibold text-text-primary">{group.attention_count}</span></div>
+                                            <div>Nota media: <span className="font-semibold text-text-primary">{formatGrade(group.avg_grade)}</span></div>
+                                            <div>Presenca media: <span className="font-semibold text-text-primary">{formatAttendance(group.avg_attendance)}</span></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </Card>
@@ -778,3 +823,4 @@ function normalizeText(value) {
         .toLowerCase()
         .trim();
 }
+
