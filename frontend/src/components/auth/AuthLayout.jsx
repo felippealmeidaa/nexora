@@ -96,12 +96,12 @@ export function AuthCard({
         >
             <div className="glass-card-static p-8 sm:p-10">
                 <div className="mb-8 text-center">
-                    <div className={clsx('mx-auto flex h-16 w-16 items-center justify-center rounded-[22px] bg-gradient-to-br text-white shadow-glow-sm', toneMap[tone] || toneMap.blue)}>
+                    <div className={clsx('mx-auto flex h-[72px] w-[72px] items-center justify-center rounded-[24px] bg-gradient-to-br text-white shadow-[0_22px_46px_-24px_rgba(106,27,255,0.58)] ring-1 ring-white/35', toneMap[tone] || toneMap.blue)}>
                         {Icon ? (
                             <Icon className="h-6 w-6" />
                         ) : (
-                            <div className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-white/96 shadow-[0_12px_24px_-16px_rgba(15,23,42,0.55)] ring-1 ring-white/80">
-                                <BrandLogo compact symbolOnly className="h-7" />
+                            <div className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-white shadow-[0_18px_32px_-18px_rgba(15,23,42,0.52)] ring-1 ring-white/95">
+                                <BrandLogo compact symbolOnly className="h-8" />
                             </div>
                         )}
                     </div>
@@ -193,3 +193,4 @@ export function AuthSuccessState({
         </AuthLayout>
     );
 }
+
