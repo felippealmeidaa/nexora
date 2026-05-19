@@ -6,9 +6,11 @@ O driver do navegador e criado sob demanda com fallback entre
 Google Chrome e Microsoft Edge no Windows.
 """
 
+import importlib.util
 import json
 import logging
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -31,6 +33,39 @@ class LyceumScraperService:
         self.driver = None
         self.active_browser_name: Optional[str] = None
         self._runtime_dirs: list[str] = []
+
+    def _ensure_selenium_available(self):
+        if importlib.util.find_spec("selenium") is not None:
+            return
+
+        major = sys.version_info.major
+        minor = sys.version_info.minor
+        local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
+        app_data = Path(os.environ.get("APPDATA", ""))
+
+        candidate_paths = [
+            app_data / f"Python/Python{major}{minor}/site-packages",
+            local_app_data / f"Programs/Python/Python{major}{minor}/Lib/site-packages",
+        ]
+
+        package_roots = local_app_data / "Packages"
+        if package_roots.exists():
+            for package_dir in package_roots.glob("PythonSoftwareFoundation.Python.*"):
+                candidate_paths.append(
+                    package_dir / f"LocalCache/local-packages/Python{major}{minor}/site-packages"
+                )
+
+        for candidate in candidate_paths:
+            if candidate.exists() and str(candidate) not in sys.path:
+                sys.path.append(str(candidate))
+                if importlib.util.find_spec("selenium") is not None:
+                    logger.info("selenium carregado a partir de %s", candidate)
+                    return
+
+        raise RuntimeError(
+            "A dependencia selenium nao esta instalada na venv ativa nem em um Python local detectavel. "
+            "Instale no mesmo Python que sobe o backend."
+        )
 
     def _browser_candidates(self) -> list[tuple[str, list[str]]]:
         local_app_data = os.environ.get("LOCALAPPDATA", "")
@@ -110,6 +145,8 @@ class LyceumScraperService:
         return options
 
     def _init_driver(self):
+        self._ensure_selenium_available()
+
         try:
             from selenium import webdriver
             from selenium.webdriver.chrome.options import Options as ChromeOptions
@@ -118,7 +155,8 @@ class LyceumScraperService:
             from selenium.webdriver.edge.service import Service as EdgeService
         except Exception as exc:
             raise RuntimeError(
-                "A dependencia selenium nao esta instalada. Rode: pip install -r requirements.txt"
+                "A dependencia selenium existe, mas nao pode ser carregada pelo backend atual. "
+                "Reinicie a API e confirme a instalacao no Python da aplicacao."
             ) from exc
 
         cache_dir = Path(__file__).resolve().parents[2] / ".nexora-runtime" / "selenium-cache"
