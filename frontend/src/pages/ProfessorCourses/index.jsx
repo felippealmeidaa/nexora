@@ -13,7 +13,21 @@ import { useAuth } from '@/contexts/AuthContext';
 import { buildRolePath } from '@/lib/app-shell';
 
 function normalizeText(value) {
-    return String(value || '').trim().toLowerCase();
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+}
+
+function dedupeSubjects(subjects) {
+    const unique = new Map();
+    for (const subject of subjects || []) {
+        const key = subject?.id ? `id:${subject.id}` : `name:${normalizeText(subject?.name)}`;
+        if (!key || unique.has(key)) continue;
+        unique.set(key, subject);
+    }
+    return Array.from(unique.values()).sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export function ProfessorCourses() {
@@ -21,11 +35,13 @@ export function ProfessorCourses() {
     const [profile, setProfile] = useState(null);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
+    const [subjectsLoading, setSubjectsLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [selectedAcademicCourse, setSelectedAcademicCourse] = useState('');
     const [selectedCourseIds, setSelectedCourseIds] = useState([]);
+    const [availableSubjects, setAvailableSubjects] = useState([]);
     const profileRoute = buildRolePath(user?.role, 'profile');
 
     const loadProfile = async () => {
@@ -36,12 +52,44 @@ export function ProfessorCourses() {
         return response.data;
     };
 
+    const loadAvailableSubjects = async (academicCourseName) => {
+        if (!academicCourseName) {
+            setAvailableSubjects([]);
+            return [];
+        }
+
+        setSubjectsLoading(true);
+        try {
+            const response = await api.get('/courses/by-academic-courses', {
+                params: { names: academicCourseName },
+            });
+            const subjects = Array.isArray(response.data) ? response.data : [];
+            const uniqueSubjects = dedupeSubjects(subjects);
+            setAvailableSubjects(uniqueSubjects);
+            return uniqueSubjects;
+        } catch (loadError) {
+            console.error('Erro ao carregar disciplinas disponiveis do curso', loadError);
+            setAvailableSubjects([]);
+            throw loadError;
+        } finally {
+            setSubjectsLoading(false);
+        }
+    };
+
     useEffect(() => {
         async function fetchData() {
             setLoading(true);
             setError('');
             try {
-                await loadProfile();
+                const data = await loadProfile();
+                const academicCourses = data.academic_courses || [];
+                if (academicCourses.length > 0) {
+                    const initialAcademicCourse = academicCourses[0];
+                    setSelectedAcademicCourse(initialAcademicCourse);
+                    await loadAvailableSubjects(initialAcademicCourse);
+                } else {
+                    setAvailableSubjects([]);
+                }
             } catch (loadError) {
                 console.error('Erro ao carregar disciplinas do professor', loadError);
                 setError('Nao foi possivel carregar o escopo docente agora.');
@@ -54,50 +102,93 @@ export function ProfessorCourses() {
     }, []);
 
     const academicCourseOptions = useMemo(() => {
-        const groups = new Map();
-        for (const item of profile?.courses || []) {
-            if (!item?.academic_course_name || !item?.student_count) continue;
-            const group = groups.get(item.academic_course_name) || {
-                name: item.academic_course_name,
-                subjects: 0,
-                students: 0,
+        return (profile?.academic_courses || []).map((name) => {
+            const subjectsForCourse = (profile?.courses || []).filter((course) => course.academic_course_name === name);
+            const selectedForCourse = subjectsForCourse.filter((course) => selectedCourseIds.includes(course.id));
+            const studentsForCourse = selectedForCourse.reduce((sum, course) => sum + (course.student_count || 0), 0);
+            return {
+                name,
+                selectedSubjects: selectedForCourse.length,
+                students: studentsForCourse,
             };
-            group.subjects += 1;
-            group.students += item.student_count;
-            groups.set(item.academic_course_name, group);
-        }
-        return Array.from(groups.values()).sort((left, right) => left.name.localeCompare(right.name));
-    }, [profile]);
+        });
+    }, [profile, selectedCourseIds]);
 
     useEffect(() => {
         if (!academicCourseOptions.length) {
             setSelectedAcademicCourse('');
+            setAvailableSubjects([]);
             return;
         }
 
         const exists = academicCourseOptions.some((course) => course.name === selectedAcademicCourse);
         if (!selectedAcademicCourse || !exists) {
-            setSelectedAcademicCourse(academicCourseOptions[0].name);
+            const nextAcademicCourse = academicCourseOptions[0].name;
+            setSelectedAcademicCourse(nextAcademicCourse);
+            loadAvailableSubjects(nextAcademicCourse).catch(() => {
+                setError('Nao foi possivel carregar as disciplinas do curso selecionado.');
+            });
         }
     }, [academicCourseOptions, selectedAcademicCourse]);
 
+    const statsByCourseKey = useMemo(() => {
+        const map = new Map();
+        for (const subject of profile?.courses || []) {
+            const key = subject?.id ? `id:${subject.id}` : `name:${normalizeText(subject?.name)}`;
+            map.set(key, subject);
+        }
+        return map;
+    }, [profile]);
+
+    const selectedCourseDetailsById = useMemo(() => {
+        const map = new Map();
+        for (const subject of profile?.selected_courses || []) {
+            if (subject?.id) {
+                map.set(subject.id, subject);
+            }
+        }
+        return map;
+    }, [profile]);
+
     const visibleSubjects = useMemo(() => {
         const searchKey = normalizeText(search);
-        return (profile?.courses || [])
-            .filter((course) => course.academic_course_name === selectedAcademicCourse)
+        return availableSubjects
+            .map((course) => {
+                const key = course?.id ? `id:${course.id}` : `name:${normalizeText(course?.name)}`;
+                const stats = statsByCourseKey.get(key);
+                return {
+                    ...course,
+                    student_count: stats?.student_count || 0,
+                    periods: stats?.periods || [],
+                };
+            })
             .filter((course) => !searchKey || [course.name, course.code].filter(Boolean).join(' ').toLowerCase().includes(searchKey))
             .sort((left, right) => left.name.localeCompare(right.name));
-    }, [profile, search, selectedAcademicCourse]);
+    }, [availableSubjects, search, statsByCourseKey]);
 
     const selectedSubjects = useMemo(() => {
-        const selectedSet = new Set(selectedCourseIds);
-        return (profile?.courses || [])
-            .filter((course) => course.id && selectedSet.has(course.id))
-            .sort((left, right) => left.name.localeCompare(right.name));
-    }, [profile, selectedCourseIds]);
+        const merged = [];
+        const availableById = new Map(availableSubjects.filter((subject) => subject?.id).map((subject) => [subject.id, subject]));
+
+        for (const courseId of selectedCourseIds) {
+            const live = availableById.get(courseId);
+            const saved = selectedCourseDetailsById.get(courseId);
+            const stats = statsByCourseKey.get(`id:${courseId}`);
+            const base = live || saved;
+            if (!base) continue;
+            merged.push({
+                ...base,
+                academic_course_name: stats?.academic_course_name || selectedAcademicCourse,
+                student_count: stats?.student_count || 0,
+                periods: stats?.periods || [],
+            });
+        }
+
+        return merged.sort((left, right) => left.name.localeCompare(right.name));
+    }, [availableSubjects, selectedAcademicCourse, selectedCourseDetailsById, selectedCourseIds, statsByCourseKey]);
 
     const totalSelectedStudents = selectedSubjects.reduce((sum, subject) => sum + (subject.student_count || 0), 0);
-    const totalAvailableSubjects = academicCourseOptions.reduce((sum, course) => sum + course.subjects, 0);
+    const totalAvailableSubjects = visibleSubjects.length;
 
     const toggleCourse = (courseId) => {
         setSelectedCourseIds((previous) => (
@@ -109,6 +200,17 @@ export function ProfessorCourses() {
         setError('');
     };
 
+    const handleAcademicCourseSelect = async (courseName) => {
+        setSelectedAcademicCourse(courseName);
+        setSearch('');
+        setError('');
+        try {
+            await loadAvailableSubjects(courseName);
+        } catch {
+            setError('Nao foi possivel carregar as disciplinas do curso selecionado.');
+        }
+    };
+
     const handleSave = async () => {
         setSaving(true);
         setError('');
@@ -116,10 +218,13 @@ export function ProfessorCourses() {
         try {
             await api.put('/professors/me/courses', { course_ids: selectedCourseIds });
             const refreshed = await loadProfile();
+            if (selectedAcademicCourse) {
+                await loadAvailableSubjects(selectedAcademicCourse);
+            }
             setSuccess(
                 refreshed.selected_course_ids?.length
-                    ? 'Escopo docente salvo. Agora a NEXORA considera apenas as disciplinas selecionadas por voce.'
-                    : 'Nenhuma disciplina ficou selecionada. Voce pode voltar e marcar as disciplinas que leciona.'
+                    ? 'Disciplinas do seu curso salvas com sucesso. As proximas leituras do professor usarao apenas esse escopo.'
+                    : 'Nenhuma disciplina ficou selecionada. Voce pode marcar novamente as disciplinas do seu curso.'
             );
         } catch (saveError) {
             console.error('Erro ao salvar disciplinas do professor', saveError);
@@ -141,22 +246,22 @@ export function ProfessorCourses() {
         <div className="space-y-6">
             <PageHeader
                 title="Disciplinas matriculadas"
-                subtitle="Escolha primeiro um curso com alunos ativos, depois marque apenas as disciplinas que voce realmente leciona."
+                subtitle="Os cursos salvos no seu perfil aparecem aqui. Depois, voce seleciona apenas as disciplinas que realmente leciona dentro daquele curso."
                 icon={BookOpen}
             />
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <MetricCard title="Cursos com alunos" value={academicCourseOptions.length} helper="Cursos academicos com base ativa" icon={GraduationCap} tone="indigo" />
-                <MetricCard title="Disciplinas disponiveis" value={totalAvailableSubjects} helper="Detectadas a partir dos alunos sincronizados" icon={BookOpen} tone="purple" />
+                <MetricCard title="Cursos salvos" value={academicCourseOptions.length} helper="Cursos academicos persistidos no seu perfil" icon={GraduationCap} tone="indigo" />
+                <MetricCard title="Disciplinas do curso" value={totalAvailableSubjects} helper="Elegiveis no curso selecionado" icon={BookOpen} tone="purple" />
                 <MetricCard title="Disciplinas selecionadas" value={selectedSubjects.length} helper="Escopo docente salvo no seu perfil" icon={CheckCircle} tone="emerald" />
-                <MetricCard title="Alunos cobertos" value={totalSelectedStudents} helper="Somatorio das disciplinas que voce marcou" icon={Users} tone="blue" />
+                <MetricCard title="Alunos cobertos" value={totalSelectedStudents} helper="Contagem atual nas disciplinas escolhidas" icon={Users} tone="blue" />
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
                 <Card>
                     <CardHeader
-                        title="1. Escolha um curso com alunos matriculados"
-                        subtitle="A lista abaixo mostra apenas cursos que ja possuem alunos ativos e disciplinas detectadas via sincronizacao."
+                        title="1. Escolha um curso do seu perfil"
+                        subtitle="Os cursos abaixo ja foram salvos no seu cadastro. Agora voce escolhe um deles para marcar apenas as disciplinas que leciona."
                         icon={GraduationCap}
                     />
 
@@ -169,13 +274,13 @@ export function ProfessorCourses() {
                                         <button
                                             key={course.name}
                                             type="button"
-                                            onClick={() => setSelectedAcademicCourse(course.name)}
+                                            onClick={() => handleAcademicCourseSelect(course.name)}
                                             className={`rounded-[22px] border px-4 py-3 text-left transition ${isActive
                                                 ? 'border-accent-blue/35 bg-accent-blue/10 shadow-sm'
                                                 : 'border-border-subtle bg-white hover:border-border-hover hover:bg-bg-secondary/50'}`}
                                         >
                                             <p className="text-sm font-semibold text-text-primary">{course.name}</p>
-                                            <p className="mt-1 text-sm text-text-secondary">{course.subjects} disciplinas detectadas • {course.students} alunos no curso</p>
+                                            <p className="mt-1 text-sm text-text-secondary">{course.selectedSubjects} disciplinas ja selecionadas • {course.students} alunos cobertos</p>
                                         </button>
                                     );
                                 })}
@@ -184,8 +289,8 @@ export function ProfessorCourses() {
                             <div className="rounded-[24px] border border-border-subtle bg-bg-secondary/45 p-5">
                                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                     <div>
-                                        <p className="text-sm font-semibold text-text-primary">2. Marque as disciplinas que voce leciona em {selectedAcademicCourse || 'um curso'}</p>
-                                        <p className="mt-1 text-sm text-text-secondary">Depois de salvar, o dashboard e as analises do professor passam a usar esse escopo.</p>
+                                        <p className="text-sm font-semibold text-text-primary">2. Selecione apenas as disciplinas do curso {selectedAcademicCourse || 'escolhido'}</p>
+                                        <p className="mt-1 text-sm text-text-secondary">As opcoes abaixo pertencem ao curso salvo no seu perfil. Assim o professor nao ve disciplinas fora da sua area.</p>
                                     </div>
                                     <div className="relative w-full md:max-w-xs">
                                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
@@ -199,11 +304,15 @@ export function ProfessorCourses() {
                                 </div>
 
                                 <div className="mt-5 space-y-3">
-                                    {visibleSubjects.length > 0 ? visibleSubjects.map((course) => {
+                                    {subjectsLoading ? (
+                                        <div className="flex min-h-[180px] items-center justify-center rounded-[22px] border border-dashed border-border-subtle bg-white/70">
+                                            <Loader2 className="h-6 w-6 animate-spin text-accent-blue" />
+                                        </div>
+                                    ) : visibleSubjects.length > 0 ? visibleSubjects.map((course) => {
                                         const isChecked = selectedCourseIds.includes(course.id);
                                         return (
                                             <button
-                                                key={`${course.academic_course_name}-${course.id || course.name}`}
+                                                key={`${selectedAcademicCourse}-${course.id || course.name}`}
                                                 type="button"
                                                 onClick={() => course.id && toggleCourse(course.id)}
                                                 disabled={!course.id}
@@ -213,23 +322,23 @@ export function ProfessorCourses() {
                                             >
                                                 <div>
                                                     <p className="text-sm font-semibold text-text-primary">{course.name}</p>
-                                                    <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} • {course.student_count} alunos no curso</p>
+                                                    <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} • {course.student_count || 0} alunos vinculados no momento</p>
                                                     <div className="mt-2 flex flex-wrap gap-2">
-                                                        {course.periods?.map((period) => (
+                                                        {course.periods?.length ? course.periods.map((period) => (
                                                             <Badge key={`${course.name}-${period}`} variant="neutral">{period}o periodo</Badge>
-                                                        ))}
+                                                        )) : (
+                                                            <Badge variant="neutral">Sem alunos sincronizados ainda</Badge>
+                                                        )}
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-3">
-                                                    <Badge variant={isChecked ? 'success' : 'info'}>{isChecked ? 'Selecionada' : 'Disponivel'}</Badge>
-                                                </div>
+                                                <Badge variant={isChecked ? 'success' : 'info'}>{isChecked ? 'Selecionada' : 'Disponivel'}</Badge>
                                             </button>
                                         );
                                     }) : (
                                         <EmptyState
                                             icon={BookOpen}
-                                            title="Nenhuma disciplina encontrada"
-                                            description="Ajuste a busca ou escolha outro curso academico com alunos ativos."
+                                            title="Nenhuma disciplina encontrada para este curso"
+                                            description="Ajuste a busca ou revise o curso salvo no perfil do professor."
                                         />
                                     )}
                                 </div>
@@ -238,8 +347,13 @@ export function ProfessorCourses() {
                     ) : (
                         <EmptyState
                             icon={BookOpen}
-                            title="Nenhum curso com alunos sincronizados ainda"
-                            description="Assim que houver alunos ativos sincronizados nos seus cursos academicos, as disciplinas aparecerao aqui para selecao."
+                            title="Nenhum curso salvo no perfil"
+                            description="Primeiro salve os cursos em que voce leciona no perfil do professor. Depois, as disciplinas do curso aparecerao aqui para selecao."
+                            action={(
+                                <Link to={profileRoute}>
+                                    <Button>Ir para meu perfil</Button>
+                                </Link>
+                            )}
                         />
                     )}
                 </Card>
@@ -247,7 +361,7 @@ export function ProfessorCourses() {
                 <Card>
                     <CardHeader
                         title="Resumo do escopo docente"
-                        subtitle="Depois de selecionar as disciplinas, a tela mostra apenas os quantitativos para reduzir poluicao visual."
+                        subtitle="O curso continua salvo no perfil e aqui voce controla apenas as disciplinas que realmente leciona."
                         icon={Users}
                         action={<Button icon={Save} loading={saving} onClick={handleSave}>Salvar escopo</Button>}
                     />
@@ -266,7 +380,7 @@ export function ProfessorCourses() {
                     <div className="space-y-4">
                         <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/45 p-4 text-sm text-text-secondary">
                             <p className="font-semibold text-text-primary">Como a tela funciona agora</p>
-                            <p className="mt-2 leading-6">1. O professor escolhe um curso que ja tem alunos ativos. 2. Marca apenas as disciplinas que realmente leciona. 3. A NEXORA passa a contar alunos por disciplina sem listar nome por nome nesta tela.</p>
+                            <p className="mt-2 leading-6">1. O curso do professor ja vem salvo desde o cadastro. 2. A NEXORA mostra somente as disciplinas elegiveis daquele curso. 3. O professor marca quais dessas disciplinas realmente leciona e salva o escopo.</p>
                         </div>
 
                         {selectedSubjects.length > 0 ? (
@@ -276,14 +390,16 @@ export function ProfessorCourses() {
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
                                                 <p className="text-sm font-semibold text-text-primary">{course.name}</p>
-                                                <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} • {course.academic_course_name}</p>
+                                                <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} • {course.academic_course_name || selectedAcademicCourse || 'Curso salvo no perfil'}</p>
                                             </div>
-                                            <Badge variant="info">{course.student_count} alunos</Badge>
+                                            <Badge variant="info">{course.student_count || 0} alunos</Badge>
                                         </div>
                                         <div className="mt-3 flex flex-wrap gap-2">
-                                            {course.periods?.map((period) => (
+                                            {course.periods?.length ? course.periods.map((period) => (
                                                 <Badge key={`selected-${course.id}-${period}`} variant="neutral">{period}o periodo</Badge>
-                                            ))}
+                                            )) : (
+                                                <Badge variant="neutral">Sem alunos sincronizados ainda</Badge>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -292,25 +408,10 @@ export function ProfessorCourses() {
                             <EmptyState
                                 icon={CheckCircle}
                                 title="Nenhuma disciplina selecionada"
-                                description="Escolha um curso, marque as disciplinas que voce leciona e salve o escopo para a plataforma reduzir o ruido visual nas proximas telas."
+                                description="Escolha um curso salvo no seu perfil, marque as disciplinas que voce leciona e salve o escopo para o restante da plataforma usar apenas esse recorte."
                             />
                         )}
                     </div>
-
-                    {!profile?.academic_courses?.length ? (
-                        <div className="mt-5">
-                            <EmptyState
-                                icon={GraduationCap}
-                                title="Primeiro selecione os cursos academicos"
-                                description="Sem os cursos no perfil, o sistema nao consegue identificar quais alunos e disciplinas pertencem ao seu escopo."
-                                action={(
-                                    <Link to={profileRoute}>
-                                        <Button>Ir para meu perfil</Button>
-                                    </Link>
-                                )}
-                            />
-                        </div>
-                    ) : null}
                 </Card>
             </div>
         </div>

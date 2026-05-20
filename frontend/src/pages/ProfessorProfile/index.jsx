@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
@@ -23,6 +23,24 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
 
+function normalizeText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+}
+
+function dedupeSubjects(subjects) {
+    const unique = new Map();
+    for (const subject of subjects || []) {
+        const key = normalizeText(subject?.name || subject?.code || '');
+        if (!key || unique.has(key)) continue;
+        unique.set(key, subject);
+    }
+    return Array.from(unique.values()).sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export function ProfessorProfile() {
     const { user } = useAuth();
     const coursesRoute = buildRolePath(user?.role, 'courses');
@@ -41,18 +59,42 @@ export function ProfessorProfile() {
         fetchAcademicCourses(api).then(setAvailableCourses);
     }, []);
 
+    const loadLinkedSubjects = async (courseNames) => {
+        const selectedNames = (courseNames || []).filter(Boolean);
+        if (!selectedNames.length) {
+            setLinkedSubjects([]);
+            return [];
+        }
+
+        try {
+            const response = await api.get('/courses/by-academic-courses', {
+                params: { names: selectedNames.join(',') },
+            });
+            const subjects = Array.isArray(response.data) ? response.data : [];
+            const uniqueSubjects = dedupeSubjects(subjects);
+            setLinkedSubjects(uniqueSubjects);
+            return uniqueSubjects;
+        } catch (loadError) {
+            console.error('Erro ao carregar disciplinas elegiveis do professor', loadError);
+            setLinkedSubjects([]);
+            return [];
+        }
+    };
+
     useEffect(() => {
         const fetchProfile = async () => {
             try {
                 const response = await api.get('/professors/me');
                 const data = response.data;
-                setForm({
-                    name: data.user_name || '',
-                    email: data.user_email || '',
+                const nextForm = {
+                    name: data.user_name || user?.full_name || '',
+                    email: data.user_email || user?.email || '',
                     phone: data.phone || '',
-                });
-                setAcademicCourses(data.academic_courses || []);
-                setLinkedSubjects(data.courses || []);
+                };
+                const nextAcademicCourses = data.academic_courses || [];
+                setForm(nextForm);
+                setAcademicCourses(nextAcademicCourses);
+                await loadLinkedSubjects(nextAcademicCourses);
             } catch (err) {
                 console.error(err);
                 setError('Erro ao carregar perfil.');
@@ -61,7 +103,7 @@ export function ProfessorProfile() {
             }
         };
         fetchProfile();
-    }, []);
+    }, [user?.email, user?.full_name]);
 
     const updateField = (field, value) => {
         setForm((previous) => ({ ...previous, [field]: value }));
@@ -75,6 +117,8 @@ export function ProfessorProfile() {
                 ? previous.filter((course) => course !== courseName)
                 : [...previous, courseName]
         ));
+        setError('');
+        setSuccess('');
     };
 
     const handleSubmit = async (event) => {
@@ -83,21 +127,51 @@ export function ProfessorProfile() {
         setError('');
         setSuccess('');
 
+        const trimmedName = form.name.trim();
+        const trimmedEmail = form.email.trim().toLowerCase();
+        const trimmedPhone = form.phone.trim();
+
+        if (academicCourses.length === 0) {
+            setError('Selecione ao menos um curso academico.');
+            setSaving(false);
+            return;
+        }
+
+        if (trimmedEmail && !trimmedEmail.includes('@')) {
+            setError('Informe um e-mail valido com @ ou deixe o campo em branco.');
+            setSaving(false);
+            return;
+        }
+
         try {
-            await Promise.all([
-                api.patch('/auth/me', {
-                    full_name: form.name,
-                    email: form.email,
-                    phone: form.phone,
-                }),
+            const requests = [
                 api.put('/professors/me/academic-courses', {
                     course_names: academicCourses,
                 }),
-            ]);
+            ];
+
+            if (trimmedName || trimmedEmail || trimmedPhone) {
+                requests.unshift(
+                    api.patch('/auth/me', {
+                        ...(trimmedName ? { full_name: trimmedName } : {}),
+                        ...(trimmedEmail ? { email: trimmedEmail } : {}),
+                        phone: trimmedPhone || null,
+                    })
+                );
+            }
+
+            await Promise.all(requests);
 
             const refreshed = await api.get('/professors/me');
-            setLinkedSubjects(refreshed.data.courses || []);
-            setSuccess('Perfil atualizado com sucesso. As disciplinas foram recalculadas automaticamente.');
+            const refreshedAcademicCourses = refreshed.data.academic_courses || [];
+            setForm({
+                name: refreshed.data.user_name || trimmedName || '',
+                email: refreshed.data.user_email || trimmedEmail || '',
+                phone: refreshed.data.phone || trimmedPhone || '',
+            });
+            setAcademicCourses(refreshedAcademicCourses);
+            await loadLinkedSubjects(refreshedAcademicCourses);
+            setSuccess('Cursos do professor salvos com sucesso. As disciplinas elegiveis do seu curso ja foram atualizadas.');
         } catch (err) {
             setError(err.response?.data?.detail || 'Erro ao atualizar perfil.');
         } finally {
@@ -114,8 +188,13 @@ export function ProfessorProfile() {
     }
 
     const filteredCourses = availableCourses
-        .filter((course) => course.toLowerCase().includes(courseSearch.toLowerCase()))
-        .filter((course) => !academicCourses.includes(course));
+        .filter((course) => normalizeText(course).includes(normalizeText(courseSearch)))
+        .filter((course) => !academicCourses.some((selected) => normalizeText(selected) === normalizeText(course)));
+
+    const linkedSubjectsPreview = useMemo(
+        () => linkedSubjects.slice(0, 8),
+        [linkedSubjects]
+    );
 
     return (
         <motion.div
@@ -126,7 +205,7 @@ export function ProfessorProfile() {
         >
             <PageHeader
                 title="Meu perfil"
-                subtitle="Atualize seus dados e os cursos academicos que alimentam a deteccao automatica de disciplinas."
+                subtitle="Atualize seus dados e mantenha salvos os cursos academicos que definem as disciplinas elegiveis do seu painel."
                 icon={UserCircle}
             />
 
@@ -150,7 +229,7 @@ export function ProfessorProfile() {
                             Cursos em que voce leciona
                         </h3>
                         <p className="mb-4 text-sm text-text-secondary">
-                            Os cursos abaixo definem quais alunos entram no seu radar. As disciplinas sao derivadas automaticamente do scraping desses alunos.
+                            Os cursos abaixo ficam salvos no seu perfil desde o cadastro. A partir deles, a NEXORA libera apenas as disciplinas elegiveis daquele curso para voce marcar no modulo de disciplinas.
                         </p>
 
                         {academicCourses.length > 0 ? (
@@ -176,7 +255,7 @@ export function ProfessorProfile() {
                             />
 
                             {showCourseDropdown ? <div className="fixed inset-0 z-40" onClick={() => setShowCourseDropdown(false)} /> : null}
-                            {showCourseDropdown && courseSearch ? (
+                            {showCourseDropdown ? (
                                 <motion.div
                                     initial={{ opacity: 0, scale: 0.95, y: -10 }}
                                     animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -230,24 +309,24 @@ export function ProfessorProfile() {
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
                                 <BookOpen className="h-4 w-4 text-accent-blue-light" />
-                                Disciplinas detectadas
+                                Disciplinas elegiveis do seu curso
                             </h3>
                             <span className="rounded-full bg-accent-purple/10 px-2 py-0.5 text-xs font-bold text-accent-purple">
                                 {linkedSubjects.length}
                             </span>
                         </div>
                         <p className="mb-4 text-xs leading-6 text-text-secondary">
-                            Esta lista e alimentada automaticamente pelos alunos sincronizados nos cursos selecionados acima.
+                            Esta lista ja considera os cursos que voce salvou no perfil. Na proxima etapa, em Disciplinas matriculadas, voce escolhe quais dessas disciplinas realmente leciona.
                         </p>
                         <div className="space-y-2">
-                            {linkedSubjects.length > 0 ? linkedSubjects.slice(0, 8).map((course) => (
-                                <div key={course.name} className="flex items-center justify-between rounded-lg bg-bg-elevated/35 p-3 text-xs">
+                            {linkedSubjectsPreview.length > 0 ? linkedSubjectsPreview.map((course) => (
+                                <div key={course.id || course.name} className="flex items-center justify-between rounded-lg bg-bg-elevated/35 p-3 text-xs">
                                     <span className="truncate pr-3 text-text-secondary">{course.name}</span>
-                                    <span className="font-mono text-text-tertiary">{course.code || 'AUTO'}</span>
+                                    <span className="font-mono text-text-tertiary">{course.code || 'CURSO'}</span>
                                 </div>
                             )) : (
                                 <p className="text-xs italic text-text-secondary">
-                                    Ainda nao ha disciplinas detectadas. Isso acontece quando os alunos do curso ainda nao trouxeram dados do scraping.
+                                    Ainda nao ha disciplinas elegiveis carregadas para os cursos salvos no seu perfil.
                                 </p>
                             )}
                         </div>
@@ -261,7 +340,7 @@ export function ProfessorProfile() {
                     <Card className="border-accent-purple/20 bg-gradient-to-br from-accent-purple/10 to-accent-blue/10 p-6">
                         <h4 className="text-sm font-semibold text-text-primary">Como funciona agora</h4>
                         <p className="mt-2 text-sm leading-6 text-text-secondary">
-                            1. O professor escolhe os cursos academicos. 2. Os alunos desses cursos sincronizam suas disciplinas na area do aluno. 3. A NEXORA libera automaticamente as disciplinas correspondentes no painel docente.
+                            1. O professor salva os cursos academicos no proprio perfil. 2. A NEXORA monta as disciplinas elegiveis de cada curso. 3. Na tela de disciplinas, o professor seleciona apenas as disciplinas que realmente leciona.
                         </p>
                     </Card>
                 </div>

@@ -308,26 +308,29 @@ def update_me(
 ):
     """Atualiza dados do usuário autenticado."""
     if "full_name" in data:
-        current_user.full_name = data["full_name"]
+        full_name = str(data["full_name"] or "").strip()
+        if full_name:
+            current_user.full_name = full_name
+
     if "email" in data:
-        # Verificar se email já existe
-        if data["email"] != current_user.email:
-            if db.query(User).filter(User.email == data["email"]).first():
+        email = str(data["email"] or "").strip().lower()
+        if email and email != current_user.email:
+            if db.query(User).filter(User.email == email).first():
                 raise HTTPException(status_code=400, detail="E-mail já cadastrado")
-            current_user.email = data["email"]
-    
-    # Atualizar phone no modelo Professor/Coordinator se aplicável
+            current_user.email = email
+
     if "phone" in data:
+        phone = str(data["phone"] or "").strip() or None
         from app.models.professor import Professor
         from app.models.coordinator import Coordinator
         if current_user.role == UserRole.PROFESSOR:
             prof = db.query(Professor).filter(Professor.user_id == current_user.id).first()
             if prof:
-                prof.phone = data["phone"]
+                prof.phone = phone
         elif current_user.role == UserRole.COORDINATOR:
             coord = db.query(Coordinator).filter(Coordinator.user_id == current_user.id).first()
             if coord:
-                coord.phone = data["phone"]
+                coord.phone = phone
 
     db.commit()
     db.refresh(current_user)

@@ -91,6 +91,28 @@ def _get_selected_professor_course_ids(professor: Professor | None) -> set[int]:
     }
 
 
+def _serialize_selected_professor_courses(db: Session, professor: Professor | None) -> list[dict]:
+    if not professor:
+        return []
+
+    courses = (
+        db.query(Course)
+        .join(ProfessorCourse, ProfessorCourse.course_id == Course.id)
+        .filter(ProfessorCourse.professor_id == professor.id)
+        .order_by(Course.name.asc())
+        .all()
+    )
+    return [
+        {
+            "id": course.id,
+            "name": clean_subject_name(course.name),
+            "code": course.code,
+            "department": course.department,
+        }
+        for course in courses
+    ]
+
+
 def _serialize_student_reference(student: Student) -> dict:
     class_schedule = student.class_schedule.value if getattr(student.class_schedule, "value", None) else student.class_schedule
     return {
@@ -269,6 +291,7 @@ def get_my_profile(
         "user_name": current_user.full_name,
         "user_email": current_user.email,
         "courses": _serialize_professor_courses(db, professor, current_user),
+        "selected_courses": _serialize_selected_professor_courses(db, professor),
         "selected_course_ids": sorted(_get_selected_professor_course_ids(professor)),
         "academic_courses": _get_professor_academic_courses(db, professor, current_user),
     }
@@ -360,6 +383,7 @@ def update_my_courses(
         "detail": "Disciplinas do professor atualizadas com sucesso.",
         "course_ids": selected_course_ids,
         "courses": _serialize_professor_courses(db, professor, current_user),
+        "selected_courses": _serialize_selected_professor_courses(db, professor),
     }
 
 
