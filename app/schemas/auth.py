@@ -109,11 +109,12 @@ class ProfessorRegisterRequest(BaseModel):
         return cleaned
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = 'bearer'
+class LoginResponse(BaseModel):
+    authenticated: bool = True
+    token_type: str = 'session_cookie'
     role: str
     username: str
+    expires_in_seconds: int
 
 
 class UserResponse(BaseModel):

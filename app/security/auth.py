@@ -1,14 +1,15 @@
 """
-Módulo de autenticação JWT.
+Modulo de autenticacao JWT e sessao por cookie HttpOnly.
 
-Gerencia criação, validação de tokens e extração do usuário corrente.
+Permite autenticar via cookie de sessao para o frontend e, quando necessario,
+tambem aceita bearer token para integracoes controladas.
 """
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Request, Response, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -16,7 +17,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.user import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -25,7 +26,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
     Args:
         data: payload do token (deve conter "sub" com o username)
-        expires_delta: tempo de expiração personalizado
+        expires_delta: tempo de expiracao personalizado
 
     Returns:
         Token JWT codificado como string.
@@ -43,11 +44,11 @@ def verify_token(token: str) -> dict:
     Valida e decodifica um token JWT.
 
     Raises:
-        HTTPException 401 se o token for inválido ou expirado.
+        HTTPException 401 se o token for invalido ou expirado.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token inválido ou expirado",
+        detail="Token invalido ou expirado",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -56,24 +57,75 @@ def verify_token(token: str) -> dict:
         if username is None:
             raise credentials_exception
         return payload
-    except JWTError:
-        raise credentials_exception
+    except JWTError as exc:
+        raise credentials_exception from exc
+
+
+def _authentication_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Autenticacao obrigatoria",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def get_request_token(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
+) -> str:
+    """Extrai token do header Authorization ou do cookie de sessao."""
+    if credentials and credentials.scheme.lower() == "bearer" and credentials.credentials:
+        return credentials.credentials
+
+    session_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if session_token:
+        return session_token
+
+    raise _authentication_exception()
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    """Grava o token JWT em cookie HttpOnly para sessao web."""
+    response.set_cookie(
+        key=settings.SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=settings.SESSION_COOKIE_SECURE,
+        samesite=settings.SESSION_COOKIE_SAMESITE,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+        domain=settings.SESSION_COOKIE_DOMAIN or None,
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    """Remove o cookie de sessao atual."""
+    response.delete_cookie(
+        key=settings.SESSION_COOKIE_NAME,
+        path="/",
+        domain=settings.SESSION_COOKIE_DOMAIN or None,
+        samesite=settings.SESSION_COOKIE_SAMESITE,
+        secure=settings.SESSION_COOKIE_SECURE,
+        httponly=True,
+    )
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     """
-    Dependency do FastAPI que extrai o usuário autenticado a partir do token JWT.
+    Dependency do FastAPI que extrai o usuario autenticado a partir do token JWT.
 
     Returns:
-        Instância do modelo User correspondente ao token.
+        Instancia do modelo User correspondente ao token.
 
     Raises:
-        HTTPException 401 se o token for inválido.
-        HTTPException 401 se o usuário não existir ou estiver inativo.
+        HTTPException 401 se o token for invalido.
+        HTTPException 401 se o usuario nao existir ou estiver inativo.
     """
+    token = get_request_token(request, credentials)
     payload = verify_token(token)
     username = payload.get("sub")
 
@@ -81,6 +133,6 @@ def get_current_user(
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário não encontrado ou inativo",
+            detail="Usuario nao encontrado ou inativo",
         )
     return user

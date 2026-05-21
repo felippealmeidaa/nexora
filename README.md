@@ -1,22 +1,22 @@
 # NEXORA / SIMA
 
-Plataforma acadêmica institucional para monitoramento, sincronização, análise histórica e apoio à decisão para aluno, professor, coordenação e pró-reitoria.
+Plataforma academica institucional para monitoramento, sincronizacao, analise historica e apoio a decisao para aluno, professor, coordenacao e pro-reitoria.
 
 ## Stack
 
 - Backend: FastAPI, SQLAlchemy, SQLite, Selenium, scikit-learn, Gemini
 - Frontend: React, Vite, Tailwind, Framer Motion, Recharts
-- Migrações: Alembic
+- Migracoes: Alembic
 
-## Módulos principais
+## Modulos principais
 
-- autenticação e autorização por papel
-- sincronização do portal Lyceum
+- autenticacao e autorizacao por papel
+- sincronizacao do portal Lyceum
 - dashboard do aluno
 - dashboard e escopo docente
-- upload de planilhas históricas
-- central analítica
-- exportação em PDF, CSV, XLSX e JSON
+- upload de planilhas historicas
+- central analitica
+- exportacao em PDF, CSV, XLSX e JSON
 
 ## Perfis
 
@@ -26,17 +26,18 @@ Plataforma acadêmica institucional para monitoramento, sincronização, anális
 - `admin` na API, exibido como `proreitor` no frontend
 - `viewer`
 
-## Segurança aplicada nesta versão
+## Seguranca aplicada nesta versao
 
-- `SECRET_KEY` removida do código-fonte e movida para ambiente
-- credenciais do Lyceum agora são armazenadas criptografadas
-- bootstrap demo e criação de admin padrão desativados por default
-- `CORS` configurável por origem explícita
-- RBAC reforçado em alunos, cursos, notas e frequência
-- upload histórico com validação de extensão, tamanho e limite de registros
-- base de migrações com Alembic adicionada
+- `SECRET_KEY` removida do codigo-fonte e movida para ambiente
+- credenciais do Lyceum armazenadas criptografadas
+- bootstrap demo e criacao de admin padrao desativados por default
+- `CORS` configuravel por origem explicita
+- RBAC reforcado em alunos, cursos, notas e frequencia
+- autenticacao web migrada para cookie `HttpOnly` com sessao recuperada por `/api/auth/me`
+- upload historico com validacao de extensao, tamanho e limite de registros
+- base de migracoes com Alembic adicionada
 
-## Configuração
+## Configuracao
 
 Copie o exemplo:
 
@@ -44,35 +45,43 @@ Copie o exemplo:
 copy .env.example .env
 ```
 
-Edite o `.env` e configure no mínimo:
+Edite o `.env` e configure no minimo:
 
 ```env
 SECRET_KEY=defina-um-segredo-forte
 GEMINI_API_KEY=sua_chave_se_for_usar_ia
 DATABASE_URL=sqlite:///./academico.db
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+SESSION_COOKIE_NAME=nexora_session
+SESSION_COOKIE_SAMESITE=lax
 ```
 
-## Migrações
+Observacoes:
+
+- o frontend nao usa mais `localStorage` para guardar token de autenticacao
+- o login cria um cookie `HttpOnly` e o estado da sessao e reidratado via `GET /api/auth/me`
+- em producao, habilite `SESSION_COOKIE_SECURE=true`
+
+## Migracoes
 
 O projeto agora usa Alembic como fluxo oficial.
 
-Criar uma revisão:
+Criar uma revisao:
 
 ```powershell
 alembic revision --autogenerate -m "descricao"
 ```
 
-Aplicar migrações:
+Aplicar migracoes:
 
 ```powershell
 alembic upgrade head
 ```
 
-Observação:
+Observacao:
 
-- `AUTO_CREATE_SCHEMA=false` é o padrão recomendado
-- em ambiente local antigo, só use `AUTO_CREATE_SCHEMA=true` de forma temporária, quando souber exatamente o que está fazendo
+- `AUTO_CREATE_SCHEMA=false` e o padrao recomendado
+- em ambiente local antigo, so use `AUTO_CREATE_SCHEMA=true` de forma temporaria, quando souber exatamente o que esta fazendo
 
 ## Executando o backend
 
@@ -96,9 +105,9 @@ npm run dev
 
 ## Bootstrap demo
 
-O modo demo ficou desativado por padrão.
+O modo demo ficou desativado por padrao.
 
-Só habilite se quiser subir um ambiente de demonstração:
+So habilite se quiser subir um ambiente de demonstracao:
 
 ```env
 ENABLE_DEMO_BOOTSTRAP=true
@@ -112,13 +121,13 @@ CREATE_DEFAULT_ADMIN=true
 DEFAULT_ADMIN_PASSWORD=defina-uma-senha-forte
 ```
 
-## Upload histórico
+## Upload historico
 
-Restrições atuais:
+Restricoes atuais:
 
-- extensões: `csv`, `xls`, `xlsx`, `txt`, `pdf`
-- tamanho máximo controlado por `MAX_UPLOAD_BYTES`
-- quantidade máxima de registros controlada por `MAX_HISTORICAL_RECORDS_PER_FILE`
+- extensoes: `csv`, `xls`, `xlsx`, `txt`, `pdf`
+- tamanho maximo controlado por `MAX_UPLOAD_BYTES`
+- quantidade maxima de registros controlada por `MAX_HISTORICAL_RECORDS_PER_FILE`
 - fallback de IA controlado por `ENABLE_GEMINI_UPLOAD_FALLBACK`
 
 ## Scraping Lyceum
@@ -126,8 +135,8 @@ Restrições atuais:
 Comportamento atual:
 
 - usa Selenium
-- tenta senha explícita salva pelo aluno
-- fallback por CPF foi desativado por padrão
+- tenta senha explicita salva pelo aluno
+- fallback por CPF fica desativado por padrao
 
 Se quiser reabilitar o fallback por CPF em ambiente controlado:
 
@@ -155,15 +164,15 @@ tests/
 alembic/
 ```
 
-## Documentação técnica completa
+## Documentacao tecnica completa
 
 Leia:
 
 - [DOCUMENTACAO_TECNICA.md](./DOCUMENTACAO_TECNICA.md)
 
-## Próximos passos recomendados
+## Proximos passos recomendados
 
 - migrar SQLite para PostgreSQL em ambiente compartilhado
-- mover autenticação do frontend para cookie HttpOnly quando houver tempo de refatoração
+- evoluir de cookie de sessao simples para refresh session, revogacao e controle de sessao por dispositivo
 - ampliar testes automatizados com banco isolado
-- quebrar serviços e páginas monolíticas da análise histórica
+- quebrar servicos e paginas monoliticas da analise historica

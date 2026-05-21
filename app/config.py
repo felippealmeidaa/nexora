@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     LYCEUM_CREDENTIALS_KEY: str = ""
+    SESSION_COOKIE_NAME: str = "nexora_session"
+    SESSION_COOKIE_SECURE: bool = False
+    SESSION_COOKIE_SAMESITE: str = "lax"
+    SESSION_COOKIE_DOMAIN: str = ""
 
     # Uploads
     MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024

@@ -12,6 +12,7 @@ Nesta revisão, o projeto recebeu correções estruturais importantes:
 - credenciais do Lyceum passaram a ser armazenadas criptografadas
 - RBAC foi reforçado nas rotas críticas de alunos, cursos, notas e frequência
 - CORS passou a ser configurável por origem explícita
+- autenticacao do frontend foi migrada de `localStorage` para cookie `HttpOnly`
 - upload histórico recebeu validação de extensão, tamanho e limite de registros
 - fluxo oficial de migração com Alembic foi introduzido
 
@@ -428,7 +429,7 @@ Arquivos centrais:
 ### O que falta ou está incompleto
 
 - RBAC não é aplicado de forma consistente nas rotas
-- tokens ficam no `localStorage`
+- autenticacao web ja usa cookie `HttpOnly`, mas ainda nao ha refresh token
 - não há refresh token
 - não há rotação de segredo
 - não há rate limit
@@ -451,6 +452,7 @@ Endpoints:
 - `POST /api/auth/register/professor`
 - `POST /api/auth/register/coordinator`
 - `POST /api/auth/login`
+- `POST /api/auth/logout`
 - `GET /api/auth/me`
 - `PATCH /api/auth/me`
 
@@ -458,7 +460,7 @@ Responsabilidades:
 
 - criação de usuários
 - criação de perfis especializados
-- autenticação
+- autenticação e encerramento de sessão
 - atualização básica do perfil autenticado
 
 ### 10.2 Estudantes
@@ -750,11 +752,10 @@ Arquivos:
 Fluxo:
 
 1. faz `POST /api/auth/login`
-2. recebe `access_token`
-3. salva token em `localStorage`
-4. chama `GET /api/auth/me`
-5. salva usuário em `localStorage`
-6. injeta `Authorization` nas próximas chamadas Axios
+2. backend grava cookie `HttpOnly` de sessao
+3. frontend chama `GET /api/auth/me`
+4. estado do usuario fica apenas em memoria no `AuthContext`
+5. chamadas Axios seguem com `withCredentials=true`
 
 ### 12.2 Layout e navegação
 
@@ -1001,7 +1002,7 @@ Estado geral de testes:
 - senha do Lyceum persistida em texto puro
 - `CORS` permissivo demais
 - endpoints críticos sem RBAC consistente
-- token em `localStorage`
+- sessao web via cookie `HttpOnly` ja aplicada; faltam refresh/revogacao e sessao por dispositivo
 - tentativa de múltiplas senhas derivadas de CPF no scraping
 
 ### Arquitetura

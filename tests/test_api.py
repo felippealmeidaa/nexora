@@ -16,7 +16,7 @@ from app.security.hashing import hash_password
 _uid = uuid.uuid4().hex[:6]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def client():
     """Cria tabelas no banco de teste configurado e fornece o TestClient."""
     Base.metadata.create_all(bind=engine)
@@ -30,9 +30,9 @@ def client():
         yield c
 
 
-@pytest.fixture(scope="module")
-def auth_token(client):
-    """Cria um usuario admin local e autentica para testar RBAC elevado."""
+@pytest.fixture
+def auth_client(client):
+    """Cria um usuario admin local e autentica via cookie para testar RBAC."""
     db = SessionLocal()
     try:
         username = f"testadmin_{_uid}"
@@ -55,7 +55,8 @@ def auth_token(client):
         "password": "test1234",
     })
     assert resp.status_code == 200
-    return resp.json()["access_token"]
+    assert "set-cookie" in resp.headers
+    return client
 
 
 class TestAuth:
@@ -76,7 +77,10 @@ class TestAuth:
             "password": "pass1234",
         })
         assert resp.status_code == 200
-        assert "access_token" in resp.json()
+        payload = resp.json()
+        assert payload["authenticated"] is True
+        assert payload["token_type"] == "session_cookie"
+        assert "access_token" not in payload
 
     def test_login_fail(self, client):
         resp = client.post("/api/auth/login", json={
@@ -85,27 +89,39 @@ class TestAuth:
         })
         assert resp.status_code == 401
 
-    def test_me(self, client, auth_token):
-        resp = client.get("/api/auth/me", headers={"Authorization": f"Bearer {auth_token}"})
+    def test_me(self, auth_client):
+        resp = auth_client.get("/api/auth/me")
         assert resp.status_code == 200
         assert resp.json()["username"] == f"testadmin_{_uid}"
 
+    def test_logout_clears_session(self, auth_client):
+        resp = auth_client.post("/api/auth/logout")
+        assert resp.status_code == 204
+        after = auth_client.get("/api/auth/me")
+        assert after.status_code == 401
+
 
 class TestStudentsAPI:
-    def test_create_student(self, client, auth_token):
-        h = {"Authorization": f"Bearer {auth_token}"}
-        resp = client.post("/api/students/", json={
+    def test_create_student(self, auth_client):
+        resp = auth_client.post("/api/students/", json={
             "name": "Ana Silva",
             "registration_number": f"T{_uid}",
             "email": f"ana_{_uid}@test.com",
             "enrollment_date": "2024-02-01",
             "status": "ACTIVE",
-        }, headers=h)
+        })
         assert resp.status_code == 201
 
-    def test_list_students(self, client, auth_token):
-        h = {"Authorization": f"Bearer {auth_token}"}
-        resp = client.get(f"/api/students/?search=T{_uid}", headers=h)
+    def test_list_students(self, auth_client):
+        registration = f"TL{_uid}"
+        auth_client.post("/api/students/", json={
+            "name": "Ana Lista",
+            "registration_number": registration,
+            "email": f"analista_{_uid}@test.com",
+            "enrollment_date": "2024-02-01",
+            "status": "ACTIVE",
+        })
+        resp = auth_client.get(f"/api/students/?search={registration}")
         assert resp.status_code == 200
         assert resp.json()["total"] >= 1
 

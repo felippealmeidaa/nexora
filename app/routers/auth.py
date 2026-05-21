@@ -6,9 +6,10 @@ Registro de professores e coordenadores requer código de matrícula válido.
 """
 
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.student import Student, ClassSchedule
@@ -17,15 +18,20 @@ from app.models.coordinator import Coordinator
 from app.models.staff_code import StaffRegistrationCode, StaffRole
 from app.schemas.auth import (
     LoginRequest,
+    LoginResponse,
     RegisterRequest,
     StudentRegisterRequest,
     ProfessorRegisterRequest,
-    TokenResponse,
     UserResponse,
 )
 from app.schemas.coordinator import CoordinatorRegisterRequest
 from app.security.hashing import hash_password, verify_password
-from app.security.auth import create_access_token, get_current_user
+from app.security.auth import (
+    clear_session_cookie,
+    create_access_token,
+    get_current_user,
+    set_session_cookie,
+)
 from app.security.audit import audit_logger
 from app.security.secrets import encrypt_secret
 
@@ -249,9 +255,9 @@ def register_coordinator(data: CoordinatorRegisterRequest, db: Session = Depends
     return user
 
 
-@router.post("/login", response_model=TokenResponse)
-def login(data: LoginRequest, db: Session = Depends(get_db)):
-    """Autentica usuário e retorna token JWT."""
+@router.post("/login", response_model=LoginResponse)
+def login(data: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    """Autentica usuario e cria uma sessao web via cookie HttpOnly."""
     # Trimar campos para evitar erro de espaço invisível
     data.identifier = data.identifier.strip()
     data.password = data.password.strip()
@@ -286,13 +292,21 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         )
 
     token = create_access_token(data={"sub": user.username, "role": user.role.value})
+    set_session_cookie(response, token)
     audit_logger.log_login(user.username, success=True)
 
-    return TokenResponse(
-        access_token=token,
+    return LoginResponse(
         role=user.role.value,
         username=user.username,
+        expires_in_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response):
+    """Encerra a sessao atual removendo o cookie HttpOnly."""
+    clear_session_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
 
 
 @router.get("/me", response_model=UserResponse)
