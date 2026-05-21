@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.utils.attendance import normalize_attendance_record, normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
 from app.utils.subject_name import clean_subject_name, normalize_subject_key
 
@@ -261,10 +262,11 @@ class LyceumScraperService:
 
         if custom_password:
             attempts.append(custom_password)
-        if len(cpf_digits) >= 9:
-            attempts.append(cpf_digits[:9])
-        if len(cpf_digits) >= 11:
-            attempts.append(cpf_digits)
+        if settings.ALLOW_LYCEUM_CPF_PASSWORD_FALLBACK:
+            if len(cpf_digits) >= 9:
+                attempts.append(cpf_digits[:9])
+            if len(cpf_digits) >= 11:
+                attempts.append(cpf_digits)
 
         return attempts
 

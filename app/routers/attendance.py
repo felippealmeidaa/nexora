@@ -8,12 +8,22 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.attendance import Attendance
-from app.models.user import User
+from app.models.student import Student
+from app.models.user import User, UserRole
 from app.schemas.attendance import (
     AttendanceCreate, AttendanceUpdate, AttendanceResponse, AttendanceListResponse
 )
 from app.security.auth import get_current_user
+from app.security.access import can_user_access_student, scope_students_query
 from app.security.audit import audit_logger
+from app.security.rbac import require_coordinator_or_above
+
+
+def _resolve_student_or_404(db: Session, student_id: int) -> Student:
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Aluno nao encontrado")
+    return student
 
 router = APIRouter(prefix="/api/attendance", tags=["Frequência"])
 
@@ -25,11 +35,16 @@ def list_attendance(
     student_id: Optional[int] = None,
     course_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Lista registros de frequência com filtros."""
     query = db.query(Attendance)
+    scoped_student_ids_subquery = scope_students_query(db, current_user, db.query(Student)).with_entities(Student.id)
+    query = query.filter(Attendance.student_id.in_(scoped_student_ids_subquery))
     if student_id:
+        student = _resolve_student_or_404(db, student_id)
+        if not can_user_access_student(db, current_user, student):
+            raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
         query = query.filter(Attendance.student_id == student_id)
     if course_id:
         query = query.filter(Attendance.course_id == course_id)
@@ -42,9 +57,12 @@ def list_attendance(
 def create_attendance(
     data: AttendanceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Registra frequência de um aluno."""
+    student = _resolve_student_or_404(db, data.student_id)
+    if current_user.role == UserRole.COORDINATOR and not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
     record = Attendance(**data.model_dump())
     db.add(record)
     db.commit()
@@ -58,12 +76,16 @@ def update_attendance(
     attendance_id: int,
     data: AttendanceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Atualiza registro de frequência."""
     record = db.query(Attendance).filter(Attendance.id == attendance_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Registro não encontrado")
+
+    student = _resolve_student_or_404(db, record.student_id)
+    if current_user.role == UserRole.COORDINATOR and not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
 
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(record, field, value)
@@ -78,12 +100,15 @@ def update_attendance(
 def delete_attendance(
     attendance_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Remove registro de frequência."""
     record = db.query(Attendance).filter(Attendance.id == attendance_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Registro não encontrado")
+    student = _resolve_student_or_404(db, record.student_id)
+    if current_user.role == UserRole.COORDINATOR and not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
     db.delete(record)
     db.commit()
     audit_logger.log_data_change(current_user.username, "Attendance", "DELETE", attendance_id)

@@ -12,10 +12,11 @@ from app.database import get_db
 from app.models.course import Course
 from app.models.enrollment import Enrollment
 from app.models.student import Student
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.course import CourseCreate, CourseUpdate, CourseResponse, CourseListResponse
 from app.security.auth import get_current_user
 from app.security.audit import audit_logger
+from app.security.rbac import require_coordinator_or_above
 from app.utils.subject_name import clean_subject_name, normalize_subject_key
 
 router = APIRouter(prefix="/api/courses", tags=["Disciplinas"])
@@ -276,7 +277,7 @@ def get_course(
 def create_course(
     data: CourseCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Cria uma nova disciplina."""
     if db.query(Course).filter(Course.code == data.code).first():
@@ -295,7 +296,7 @@ def update_course(
     course_id: int,
     data: CourseUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Atualiza dados de uma disciplina."""
     course = db.query(Course).filter(Course.id == course_id).first()
@@ -315,7 +316,7 @@ def update_course(
 def delete_course(
     course_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Remove uma disciplina."""
     course = db.query(Course).filter(Course.id == course_id).first()

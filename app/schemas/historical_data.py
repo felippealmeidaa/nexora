@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
+from pydantic import Field
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
@@ -18,12 +19,11 @@ class HistoricalRecordCreate(HistoricalRecordBase):
 
 
 class HistoricalRecordResponse(HistoricalRecordBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     professor_id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class HistoricalUploadSummary(BaseModel):

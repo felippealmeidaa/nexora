@@ -11,38 +11,22 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.database import get_db, SessionLocal
+from app.models.coordinator import Coordinator
 from app.models.student import Student, StudentStatus
 from app.models.user import User, UserRole
 from app.models.scraped_data import ScrapedGrade, ScrapedAttendance, ScrapedSubject, ScrapedSchedule
-from app.models.professor import Professor
-from app.models.coordinator import Coordinator
 from app.schemas.student import StudentCreate, StudentUpdate, StudentResponse, StudentListResponse
 from app.security.auth import get_current_user
+from app.security.access import can_user_access_student, scope_students_query
 from app.security.audit import audit_logger
+from app.security.rbac import require_coordinator_or_above
+from app.security.secrets import decrypt_secret, encrypt_secret
 from app.services.analytics_service import AnalyticsService
 from app.utils.attendance import normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/students", tags=["Alunos"])
-
-
-def _can_professor_access_student(db: Session, professor_user_id: int, student: Student) -> bool:
-    professor = db.query(Professor).filter(Professor.user_id == professor_user_id).first()
-    if not professor:
-        return False
-
-    academic_course_names = {ac.course_name for ac in professor.academic_courses if ac.course_name}
-    return bool(student.course_name and student.course_name in academic_course_names)
-
-
-def _can_coordinator_access_student(db: Session, coordinator_user_id: int, student: Student) -> bool:
-    coordinator = db.query(Coordinator).filter(Coordinator.user_id == coordinator_user_id).first()
-    if not coordinator:
-        return False
-    return bool(student.course_name and student.course_name == coordinator.academic_course_name)
-
-
 # ═══════════════════════════════════════════════
 # ENDPOINTS SELF-SERVICE DO ALUNO LOGADO
 # ═══════════════════════════════════════════════
@@ -59,6 +43,8 @@ def get_my_profile(
     student = db.query(Student).filter(Student.user_id == current_user.id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
+    if not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
     return student
 
 
@@ -325,18 +311,32 @@ def start_sync(
             detail="Matrícula é necessária para sincronizar.",
         )
 
+    if not student.lyceum_password:
+        raise HTTPException(
+            status_code=400,
+            detail="Salve a senha do portal antes de sincronizar.",
+        )
+
     # Marcar como syncing imediatamente
     student.sync_status = "syncing"
     student.sync_error = None
     db.commit()
 
     # Executar em background — tenta CPF-based passwords + custom password se tiver
+    try:
+        custom_password = decrypt_secret(student.lyceum_password)
+    except ValueError as exc:
+        student.sync_status = "error"
+        student.sync_error = str(exc)
+        db.commit()
+        raise HTTPException(status_code=500, detail="Credenciais do Lyceum invalidas no armazenamento seguro.") from exc
+
     background_tasks.add_task(
         _run_sync_background,
         student.id,
         student.registration_number,
         student.cpf,
-        student.lyceum_password,  # None se não tiver alterado
+        custom_password,  # None se não tiver alterado
     )
 
     return {
@@ -362,7 +362,7 @@ def get_sync_status(
         "sync_status": student.sync_status,
         "last_sync_at": student.last_sync_at.isoformat() if student.last_sync_at else None,
         "sync_error": student.sync_error,
-        "has_lyceum_credentials": bool(student.cpf and student.registration_number),
+        "has_lyceum_credentials": bool(student.lyceum_password),
     }
 
 
@@ -384,7 +384,7 @@ def update_lyceum_credentials(
     if not password:
         raise HTTPException(status_code=400, detail="Senha do portal é obrigatória")
 
-    student.lyceum_password = password
+    student.lyceum_password = encrypt_secret(password)
     db.commit()
 
     return {"message": "Credenciais do Lyceum atualizadas com sucesso"}
@@ -404,24 +404,10 @@ def list_students(
     current_user: User = Depends(get_current_user),
 ):
     """Lista alunos com paginação e filtros opcionais."""
-    from app.models.professor import Professor
-    from app.models.enrollment import Enrollment
+    if current_user.role == UserRole.STUDENT:
+        raise HTTPException(status_code=403, detail="Use os endpoints /me para acessar o proprio perfil")
 
-    query = db.query(Student)
-
-    if current_user.role == UserRole.PROFESSOR:
-        professor = db.query(Professor).filter(Professor.user_id == current_user.id).first()
-        if not professor:
-            return StudentListResponse(total=0, students=[])
-
-        academic_course_names = [ac.course_name for ac in professor.academic_courses if ac.course_name]
-        if not academic_course_names:
-            return StudentListResponse(total=0, students=[])
-
-        query = query.filter(
-            Student.status == StudentStatus.ACTIVE,
-            Student.course_name.in_(academic_course_names),
-        )
+    query = scope_students_query(db, current_user, db.query(Student))
 
     if status:
         query = query.filter(Student.status == StudentStatus(status))
@@ -445,6 +431,8 @@ def get_student(
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Aluno não encontrado")
+    if not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
     return student
 
 
@@ -455,17 +443,14 @@ def get_student_detail(
     current_user: User = Depends(get_current_user),
 ):
     """Retorna detalhes completos de um aluno para professor, coordenador ou administrador."""
-    if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN):
+    if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN, UserRole.VIEWER):
         raise HTTPException(status_code=403, detail="Acesso restrito a professor, coordenacao e administracao")
 
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Aluno não encontrado")
 
-    if current_user.role == UserRole.PROFESSOR and not _can_professor_access_student(db, current_user.id, student):
-        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
-
-    if current_user.role == UserRole.COORDINATOR and not _can_coordinator_access_student(db, current_user.id, student):
+    if not can_user_access_student(db, current_user, student):
         raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
 
     # Notas scraped
@@ -556,11 +541,16 @@ def get_student_detail(
 def create_student(
     data: StudentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Cria um novo aluno."""
     if db.query(Student).filter(Student.registration_number == data.registration_number).first():
         raise HTTPException(status_code=400, detail="Matrícula já cadastrada")
+
+    if current_user.role == UserRole.COORDINATOR and data.course_name:
+        coordinator = db.query(Coordinator).filter(Coordinator.user_id == current_user.id).first()
+        if coordinator and coordinator.academic_course_name and data.course_name != coordinator.academic_course_name:
+            raise HTTPException(status_code=403, detail="Coordenacao nao pode criar aluno fora do proprio curso")
 
     student = Student(**data.model_dump())
     db.add(student)
@@ -575,12 +565,15 @@ def update_student(
     student_id: int,
     data: StudentUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Atualiza dados de um aluno."""
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Aluno não encontrado")
+
+    if current_user.role == UserRole.COORDINATOR and not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
 
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(student, field, value)
@@ -595,12 +588,15 @@ def update_student(
 def delete_student(
     student_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_coordinator_or_above),
 ):
     """Remove um aluno."""
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Aluno não encontrado")
+
+    if current_user.role == UserRole.COORDINATOR and not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
 
     db.delete(student)
     db.commit()

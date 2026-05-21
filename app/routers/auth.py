@@ -27,6 +27,7 @@ from app.schemas.coordinator import CoordinatorRegisterRequest
 from app.security.hashing import hash_password, verify_password
 from app.security.auth import create_access_token, get_current_user
 from app.security.audit import audit_logger
+from app.security.secrets import encrypt_secret
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticação"])
 
@@ -44,7 +45,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
         full_name=data.full_name,
         email=data.email,
         hashed_password=hash_password(data.password),
-        role=UserRole(data.role) if data.role in [r.value for r in UserRole] else UserRole.VIEWER,
+        role=UserRole.VIEWER,
     )
     db.add(user)
     db.commit()
@@ -104,7 +105,7 @@ def register_student(data: StudentRegisterRequest, db: Session = Depends(get_db)
         enrollment_date=date.today(),
         is_working=data.is_working,
         work_schedule=data.work_schedule,
-        lyceum_password=data.lyceum_password,
+        lyceum_password=encrypt_secret(data.lyceum_password),
         sync_status="idle",
     )
     db.add(student)

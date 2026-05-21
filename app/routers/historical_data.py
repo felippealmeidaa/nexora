@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.historical_data import HistoricalRecord
 from app.models.student import Student
@@ -21,6 +22,7 @@ from app.services.historical_export_service import ANALYSIS_TITLES, HistoricalEx
 
 router = APIRouter(prefix="/api/historical-data", tags=["Dados Historicos"])
 logger = logging.getLogger(__name__)
+ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".xls", ".xlsx", ".txt", ".pdf"}
 
 HEADER_KEYWORDS = {
     "aluno", "nome", "matricula", "ra", "curso", "disciplina", "materia",
@@ -45,7 +47,28 @@ def _normalize_text(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
-def _clean_val(val: Any):
+def _validate_upload(filename: str, content: bytes) -> str:
+    lowered = (filename or "").strip().lower()
+    extension = ""
+    if "." in lowered:
+        extension = lowered[lowered.rfind("."):]
+
+    if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Formato nao suportado. Use CSV, Excel, TXT ou PDF.")
+
+    if not content:
+        raise HTTPException(status_code=400, detail="O arquivo enviado esta vazio.")
+
+    if len(content) > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Arquivo excede o limite de {settings.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+        )
+
+    return extension
+
+
+def _clean_val(val):
     pd = _require_pandas()
     if pd.isna(val):
         return None
@@ -542,17 +565,18 @@ async def upload_historical_spreadsheet(
         "Padroniza nomes de aluno, curso, disciplina, semestre, nota e frequencia para uma estrutura unica.",
         "Consolida linhas repetidas da mesma turma e do mesmo aluno antes de alimentar as analises.",
     ]
+    extension = _validate_upload(filename, content)
 
     try:
         records_data: list[dict[str, Any]] = []
 
-        if filename.endswith(".csv"):
+        if extension == ".csv":
             df = _parse_csv(content)
             if df is None or len(df.index) == 0:
                 raise HTTPException(status_code=422, detail="Nao foi possivel ler o CSV. Verifique o formato do arquivo.")
             records_data = _map_dataframe_to_records(df)
 
-        elif filename.endswith((".xls", ".xlsx")):
+        elif extension in {".xls", ".xlsx"}:
             pd = _require_pandas()
             workbook = pd.read_excel(io.BytesIO(content), sheet_name=None)
             for sheet_name, df in workbook.items():
@@ -562,7 +586,7 @@ async def upload_historical_spreadsheet(
             if not records_data:
                 raise HTTPException(status_code=422, detail="Nao foi possivel identificar registros validos na planilha Excel.")
 
-        elif filename.endswith(".txt"):
+        elif extension == ".txt":
             spreadsheet_text = ""
             for encoding in ["utf-8", "latin-1", "cp1252"]:
                 try:
@@ -576,24 +600,26 @@ async def upload_historical_spreadsheet(
             local_df = _parse_text_table(spreadsheet_text)
             if local_df is not None:
                 records_data = _map_dataframe_to_records(local_df)
-            if not records_data:
+            if not records_data and settings.ENABLE_GEMINI_UPLOAD_FALLBACK:
                 warnings.append("Leitura heuristica insuficiente. A NEXORA acionou a extracao assistida por IA para completar a organizacao.")
                 records_data = await gemini_service.parse_historical_spreadsheet(spreadsheet_text[:15000])
 
-        elif filename.endswith(".pdf"):
+        elif extension == ".pdf":
             spreadsheet_text = _extract_text_from_pdf(content)
             local_df = _parse_text_table(spreadsheet_text)
             if local_df is not None:
                 records_data = _map_dataframe_to_records(local_df)
-            if not records_data:
+            if not records_data and settings.ENABLE_GEMINI_UPLOAD_FALLBACK:
                 warnings.append("O PDF nao trouxe tabela estruturada suficiente. A NEXORA usou a extracao assistida por IA para recuperar os registros.")
                 records_data = await gemini_service.parse_historical_spreadsheet(spreadsheet_text[:15000])
 
-        else:
-            raise HTTPException(status_code=400, detail="Formato nao suportado. Use CSV, Excel, TXT ou PDF.")
-
         if not records_data:
             raise HTTPException(status_code=422, detail="Nenhum dado importante foi extraido do arquivo enviado.")
+        if len(records_data) > settings.MAX_HISTORICAL_RECORDS_PER_FILE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"O arquivo gerou {len(records_data)} registros, acima do limite de {settings.MAX_HISTORICAL_RECORDS_PER_FILE}.",
+            )
 
         records_data = _merge_duplicate_records(records_data)
         class_groups = _build_upload_class_groups(records_data)

@@ -1,107 +1,169 @@
-# 🎓 SIMA — Sistema Inteligente de Monitoramento Acadêmico
+# NEXORA / SIMA
 
-![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python Version](https://img.shields.io/badge/python-3.11%2B-blue)
-![React Version](https://img.shields.io/badge/react-18-61dafb)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-05998b)
-![AI Powered](https://img.shields.io/badge/AI-Google%20Gemini-orange)
+Plataforma acadêmica institucional para monitoramento, sincronização, análise histórica e apoio à decisão para aluno, professor, coordenação e pró-reitoria.
 
-O **SIMA** é uma plataforma Fullstack estado-da-arte projetada para transformar a gestão educacional. Utilizando Inteligência Artificial (Google Gemini) e Web Scraping automatizado, o sistema permite que coordenadores e professores monitorem o desempenho dos alunos, prevejam riscos de evasão e tomem decisões baseadas em dados em tempo real.
+## Stack
 
----
+- Backend: FastAPI, SQLAlchemy, SQLite, Selenium, scikit-learn, Gemini
+- Frontend: React, Vite, Tailwind, Framer Motion, Recharts
+- Migrações: Alembic
 
-## ✨ Principais Funcionalidades
+## Módulos principais
 
-### 🧠 Inteligência Artificial (Google Gemini)
-- **Insights Estratégicos**: Geração automática de relatórios analíticos sobre a saúde da turma.
-- **Mentor Digital**: Análise personalizada para cada aluno, sugerindo trilhas de estudo e motivação.
-- **Chat para Professores**: Assistente virtual para tirar dúvidas sobre o desempenho da turma e sugerir intervenções.
-- **Parsing Inteligente**: Extração automática de dados de planilhas históricas (CSV/Excel) via IA.
+- autenticação e autorização por papel
+- sincronização do portal Lyceum
+- dashboard do aluno
+- dashboard e escopo docente
+- upload de planilhas históricas
+- central analítica
+- exportação em PDF, CSV, XLSX e JSON
 
-### 🌐 Sincronização Automatizada (Lyceum Scraper)
-- **Integração UniEvangélica**: Sincronização direta de notas, faltas, horários e disciplinas do portal acadêmico.
-- **Dados em Tempo Real**: Mantenha o sistema sempre atualizado com os dados oficiais sem entrada manual.
+## Perfis
 
-### 📊 Analytics & Predição
-- **Score de Risco**: Algoritmo que classifica alunos em risco (Baixo, Médio, Alto, Crítico).
-- **Visualização de Dados**: Gráficos de dispersão, histogramas de notas e correlação de presença vs. desempenho.
-- **Gestão de Disciplinas**: Controle total sobre notas (VA1, VA2, VA3) e frequência.
+- `student`
+- `professor`
+- `coordinator`
+- `admin` na API, exibido como `proreitor` no frontend
+- `viewer`
 
----
+## Segurança aplicada nesta versão
 
-## 🛠️ Stack Tecnológica
+- `SECRET_KEY` removida do código-fonte e movida para ambiente
+- credenciais do Lyceum agora são armazenadas criptografadas
+- bootstrap demo e criação de admin padrão desativados por default
+- `CORS` configurável por origem explícita
+- RBAC reforçado em alunos, cursos, notas e frequência
+- upload histórico com validação de extensão, tamanho e limite de registros
+- base de migrações com Alembic adicionada
 
-### Backend (Python/FastAPI)
-- **FastAPI**: API de alta performance com tipagem estática.
-- **SQLAlchemy & SQLite**: Persistência de dados robusta e leve.
-- **Google Generative AI**: Integração com o modelo Gemini 1.5 Flash.
-- **Selenium**: Engine de Web Scraping para automação acadêmica.
+## Configuração
 
-### Frontend (React/Vite)
-- **React 18**: Interface reativa e moderna.
-- **TailwindCSS**: Estilização premium com efeitos de glassmorphism e tema dark.
-- **Framer Motion**: Micro-animações fluidas.
-- **Recharts**: Visualização de dados complexos em gráficos interativos.
+Copie o exemplo:
 
----
-
-## 🚀 Como Executar o Projeto
-
-### 1. Pré-requisitos
-- **Python 3.11+**
-- **Node.js 18+**
-- **Google Gemini API Key** (Obtenha [aqui](https://aistudio.google.com/app/apikey))
-
-### 2. Configuração (Variáveis de Ambiente)
-Crie um arquivo `.env` na raiz do projeto com o seguinte conteúdo:
-```env
-# Google Gemini
-GEMINI_API_KEY=sua_chave_aqui
-GEMINI_MODEL=gemini-1.5-flash
-
-# API Config
-APP_NAME=SIMA
-APP_VERSION=1.0.0
+```powershell
+copy .env.example .env
 ```
 
-### 3. Rodando com um clique (Windows)
-Basta executar o arquivo **`run.bat`** na raiz do projeto. Ele irá:
-1. Ativar o ambiente virtual Python.
-2. Iniciar o Servidor API na porta `8000`.
-3. Instalar dependências e iniciar o Frontend na porta `5173`.
+Edite o `.env` e configure no mínimo:
 
-### 4. Credenciais de Demonstração
-| Perfil | E-mail | Senha |
-| :--- | :--- | :--- |
-| **Administrador** | `admin@sima.com` | `admin123` |
-| **Professor** | (Use um código de matrícula: `20001` até `20010`) | (Criada no registro) |
-| **Aluno** | (Use o fluxo de cadastro para criar seu perfil) | (Criada no registro) |
+```env
+SECRET_KEY=defina-um-segredo-forte
+GEMINI_API_KEY=sua_chave_se_for_usar_ia
+DATABASE_URL=sqlite:///./academico.db
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
 
----
+## Migrações
 
-## 📂 Estrutura do Projeto
+O projeto agora usa Alembic como fluxo oficial.
+
+Criar uma revisão:
+
+```powershell
+alembic revision --autogenerate -m "descricao"
+```
+
+Aplicar migrações:
+
+```powershell
+alembic upgrade head
+```
+
+Observação:
+
+- `AUTO_CREATE_SCHEMA=false` é o padrão recomendado
+- em ambiente local antigo, só use `AUTO_CREATE_SCHEMA=true` de forma temporária, quando souber exatamente o que está fazendo
+
+## Executando o backend
+
+```powershell
+cd "C:\Users\guica\.gemini\antigravity\scratch\SIMA-mainn\SIMA-main"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+## Executando o frontend
+
+```powershell
+cd "C:\Users\guica\.gemini\antigravity\scratch\SIMA-mainn\SIMA-main\frontend"
+npm run dev
+```
+
+## URLs
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://127.0.0.1:8000`
+- Swagger: `http://127.0.0.1:8000/docs`
+
+## Bootstrap demo
+
+O modo demo ficou desativado por padrão.
+
+Só habilite se quiser subir um ambiente de demonstração:
+
+```env
+ENABLE_DEMO_BOOTSTRAP=true
+SEED_EMPTY_DATABASE=true
+```
+
+Para criar um admin inicial automaticamente:
+
+```env
+CREATE_DEFAULT_ADMIN=true
+DEFAULT_ADMIN_PASSWORD=defina-uma-senha-forte
+```
+
+## Upload histórico
+
+Restrições atuais:
+
+- extensões: `csv`, `xls`, `xlsx`, `txt`, `pdf`
+- tamanho máximo controlado por `MAX_UPLOAD_BYTES`
+- quantidade máxima de registros controlada por `MAX_HISTORICAL_RECORDS_PER_FILE`
+- fallback de IA controlado por `ENABLE_GEMINI_UPLOAD_FALLBACK`
+
+## Scraping Lyceum
+
+Comportamento atual:
+
+- usa Selenium
+- tenta senha explícita salva pelo aluno
+- fallback por CPF foi desativado por padrão
+
+Se quiser reabilitar o fallback por CPF em ambiente controlado:
+
+```env
+ALLOW_LYCEUM_CPF_PASSWORD_FALLBACK=true
+```
+
+## Estrutura
 
 ```text
-├── app/                  # 🧠 Backend (API & Serviços)
-│   ├── analytics/        # Motores estatísticos
-│   ├── models/           # Definições do Banco (ORM)
-│   ├── routers/          # Endpoints da API
-│   ├── services/         # Gemini & Scraper Services
-│   └── main.py           # Entrypoint da aplicação
-├── frontend/             # 🎨 Frontend (React App)
-│   ├── src/components/   # Componentes UI reusáveis
-│   ├── src/pages/        # Telas do sistema
-│   └── src/services/     # Integração com a API
-├── seed/                 # Scripts de população de banco
-├── run.bat               # Script automatizado de startup
-└── requirements.txt      # Dependências Python
+app/
+  config.py
+  database.py
+  main.py
+  models/
+  routers/
+  schemas/
+  security/
+  services/
+  utils/
+frontend/
+  src/
+seed/
+tests/
+alembic/
 ```
 
----
+## Documentação técnica completa
 
-## 🛡️ Licença
+Leia:
 
-Este projeto está sob a licença [MIT](LICENSE).
+- [DOCUMENTACAO_TECNICA.md](./DOCUMENTACAO_TECNICA.md)
 
----
-Desenvolvido para revolucionar a educação com tecnologia de ponta. 🚀
+## Próximos passos recomendados
+
+- migrar SQLite para PostgreSQL em ambiente compartilhado
+- mover autenticação do frontend para cookie HttpOnly quando houver tempo de refatoração
+- ampliar testes automatizados com banco isolado
+- quebrar serviços e páginas monolíticas da análise histórica

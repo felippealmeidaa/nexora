@@ -6,6 +6,7 @@ Configures FastAPI, routers and bootstrap data for local/demo usage.
 
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
+import logging
 import random
 
 from fastapi import FastAPI
@@ -43,7 +44,9 @@ from app.routers import (
     students,
 )
 from app.security.hashing import hash_password
+from app.security.secrets import encrypt_secret, is_encrypted_secret
 
+logger = logging.getLogger(__name__)
 
 DEMO_ACADEMIC_COURSE = "Inteligência Artificial"
 DEMO_SEMESTER = "2025.1"
@@ -169,7 +172,7 @@ def ensure_demo_student_data(db, student_user, demo_courses):
             enrollment_date=date(2025, 2, 10),
             is_working=False,
             work_schedule=None,
-            lyceum_password="lyceum123",
+            lyceum_password=encrypt_secret("lyceum123"),
             sync_status="done",
             last_sync_at=datetime.utcnow(),
         )
@@ -183,7 +186,7 @@ def ensure_demo_student_data(db, student_user, demo_courses):
         student.course_name = DEMO_ACADEMIC_COURSE
         student.current_period = 4
         student.class_schedule = ClassSchedule.NIGHT
-        student.lyceum_password = "lyceum123"
+        student.lyceum_password = encrypt_secret("lyceum123")
         student.sync_status = "done"
         student.last_sync_at = datetime.utcnow()
         db.flush()
@@ -511,6 +514,21 @@ def repair_scraped_attendance_data(db):
         print("INFO: scraped attendance values already normalized.")
 
 
+def migrate_legacy_sensitive_data(db):
+    """Encrypt any legacy Lyceum password still stored in plain text."""
+    students = db.query(Student).filter(Student.lyceum_password.isnot(None)).all()
+    updated = 0
+
+    for student in students:
+        if student.lyceum_password and not is_encrypted_secret(student.lyceum_password):
+            student.lyceum_password = encrypt_secret(student.lyceum_password)
+            updated += 1
+
+    if updated:
+        db.commit()
+        logger.warning("Encrypted %s legacy Lyceum credentials stored in plaintext.", updated)
+    else:
+        logger.info("No legacy Lyceum plaintext credentials found.")
 def ensure_demo_credentials(db):
     """Create or refresh stable demo credentials for student, professor and coordinator."""
     demo_courses = ensure_demo_courses(db)
@@ -529,38 +547,45 @@ def ensure_demo_credentials(db):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create tables and bootstrap demo data on startup."""
-    Base.metadata.create_all(bind=engine)
+    """Bootstraps optional startup tasks."""
+    if settings.AUTO_CREATE_SCHEMA:
+        Base.metadata.create_all(bind=engine)
+        logger.warning("AUTO_CREATE_SCHEMA is enabled. Prefer Alembic migrations outside development.")
 
     db = SessionLocal()
     try:
         seed_staff_registration_codes(db)
 
-        admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
-        if not admin:
-            admin_user = User(
-                username="admin",
-                full_name="Administrador SIMA",
-                email="admin@sima.com",
-                hashed_password=hash_password("admin123"),
-                role=UserRole.ADMIN,
-                is_active=True,
-                is_approved=True,
-            )
-            db.add(admin_user)
-            db.commit()
-            print("OK: admin account created.")
+        if settings.CREATE_DEFAULT_ADMIN:
+            admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+            if not admin:
+                if not settings.DEFAULT_ADMIN_PASSWORD:
+                    raise RuntimeError("CREATE_DEFAULT_ADMIN exige DEFAULT_ADMIN_PASSWORD configurada.")
+                admin_user = User(
+                    username=settings.DEFAULT_ADMIN_USERNAME,
+                    full_name="Administrador NEXORA",
+                    email=settings.DEFAULT_ADMIN_EMAIL,
+                    hashed_password=hash_password(settings.DEFAULT_ADMIN_PASSWORD),
+                    role=UserRole.ADMIN,
+                    is_active=True,
+                    is_approved=True,
+                )
+                db.add(admin_user)
+                db.commit()
+                logger.warning("Default admin account created because CREATE_DEFAULT_ADMIN is enabled.")
 
-        if db.query(Student).count() == 0:
+        if settings.SEED_EMPTY_DATABASE and db.query(Student).count() == 0:
             from seed.generate import seed_database
 
             seed_database(db)
-            print("OK: synthetic demo database seeded.")
-        else:
-            print("INFO: database already has student data.")
+            logger.warning("Synthetic demo database seeded because SEED_EMPTY_DATABASE is enabled.")
 
-        ensure_demo_credentials(db)
-        repair_scraped_attendance_data(db)
+        if settings.ENABLE_DEMO_BOOTSTRAP:
+            ensure_demo_credentials(db)
+
+        migrate_legacy_sensitive_data(db)
+        if settings.ENABLE_STARTUP_DATA_REPAIR:
+            repair_scraped_attendance_data(db)
     finally:
         db.close()
 
@@ -576,8 +601,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -596,7 +621,7 @@ app.include_router(historical_data.router)
 @app.get("/", tags=["System"])
 async def root():
     return {
-        "message": "Welcome to the SIMA API. Open /docs for the documentation.",
+        "message": "Welcome to the NEXORA API. Open /docs for the documentation.",
         "version": settings.APP_VERSION,
         "docs_url": "/docs",
     }
