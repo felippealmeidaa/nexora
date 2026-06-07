@@ -11,6 +11,7 @@ const variants = {
 };
 
 const sizes = {
+    xs: 'h-8 px-3 text-[11px] rounded-xl gap-1',
     sm: 'h-9 px-3.5 text-xs rounded-xl gap-1.5',
     md: 'h-11 px-[18px] text-sm rounded-2xl gap-2',
     lg: 'h-12 px-5.5 text-sm rounded-2xl gap-2.5',
@@ -39,9 +40,9 @@ export function Button({
             {...props}
         >
             {loading ? (
-                <Loader2 className={clsx(size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4', 'animate-spin')} />
+                <Loader2 className={clsx(size === 'sm' || size === 'xs' ? 'h-3.5 w-3.5' : 'h-4 w-4', 'animate-spin')} />
             ) : Icon ? (
-                <Icon className={clsx(size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4')} />
+                <Icon className={clsx(size === 'sm' || size === 'xs' ? 'h-3.5 w-3.5' : 'h-4 w-4')} />
             ) : null}
             {children}
         </button>

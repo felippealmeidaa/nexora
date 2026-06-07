@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     MAX_ACTIVE_SESSIONS_PER_USER: int = 5
 
     # Uploads
-    MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024
-    MAX_HISTORICAL_RECORDS_PER_FILE: int = 5000
+    MAX_UPLOAD_BYTES: int = 200 * 1024 * 1024
+    MAX_HISTORICAL_RECORDS_PER_FILE: int = 300000
     ENABLE_GEMINI_UPLOAD_FALLBACK: bool = True
 
     # Scraping

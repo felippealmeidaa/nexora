@@ -29,6 +29,8 @@ export function ProfessorRegister() {
     const [courseSearch, setCourseSearch] = useState('');
     const [showCourseDropdown, setShowCourseDropdown] = useState(false);
     const [availableAcademicCourses, setAvailableAcademicCourses] = useState([]);
+    const [availableCourses, setAvailableCourses] = useState([]);
+    const [selectedCourseIds, setSelectedCourseIds] = useState([]);
 
     const [form, setForm] = useState({
         registration_code: '',
@@ -43,6 +45,24 @@ export function ProfessorRegister() {
     useEffect(() => {
         fetchAcademicCourses(api).then(setAvailableAcademicCourses);
     }, []);
+
+    useEffect(() => {
+        if (form.academic_courses.length > 0) {
+            const namesParam = form.academic_courses.map(name => encodeURIComponent(name)).join(',');
+            api.get(`/courses/by-academic-courses?names=${namesParam}`)
+                .then(res => {
+                    setAvailableCourses(res.data || []);
+                    const validIds = (res.data || []).map(c => c.id).filter(Boolean);
+                    setSelectedCourseIds(prev => prev.filter(id => validIds.includes(id)));
+                })
+                .catch(err => {
+                    console.error("Erro ao buscar disciplinas:", err);
+                });
+        } else {
+            setAvailableCourses([]);
+            setSelectedCourseIds([]);
+        }
+    }, [form.academic_courses]);
 
     const updateField = (field, value) => {
         setForm((previous) => ({ ...previous, [field]: value }));
@@ -103,6 +123,7 @@ export function ProfessorRegister() {
                 email: form.email.trim().toLowerCase(),
                 phone: form.phone || null,
                 academic_course_names: form.academic_courses,
+                course_ids: selectedCourseIds,
             });
             setSuccess(true);
         } catch (err) {
@@ -125,7 +146,7 @@ export function ProfessorRegister() {
         return (
             <AuthSuccessState
                 title="Cadastro de professor concluido"
-                description="Sua conta foi criada. As disciplinas passarao a aparecer automaticamente quando houver alunos do mesmo curso com dados sincronizados via scraping."
+                description="Sua conta foi criada. Suas disciplinas selecionadas ja estao atreladas ao seu perfil para monitoramento e analises academicas."
                 onAction={() => navigate('/login')}
             />
         );
@@ -146,15 +167,18 @@ export function ProfessorRegister() {
                 <form onSubmit={handleSubmit} className="space-y-5">
                     {error ? <AuthAlert>{error}</AuthAlert> : null}
 
-                    <Input
-                        label="Codigo de matricula"
-                        placeholder="Ex: 20001"
-                        icon={Hash}
-                        value={form.registration_code}
-                        onChange={(event) => updateField('registration_code', digitsOnly(event.target.value, 5))}
-                        required
-                        maxLength={5}
-                    />
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <Input
+                            label="Codigo de matricula"
+                            placeholder="Ex: 20001"
+                            icon={Hash}
+                            value={form.registration_code}
+                            onChange={(event) => updateField('registration_code', digitsOnly(event.target.value, 5))}
+                            required
+                            maxLength={5}
+                        />
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" style={{ display: 'none' }}></div>
+                    </div>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <Input
@@ -215,9 +239,9 @@ export function ProfessorRegister() {
                                 <Briefcase className="h-4 w-4" />
                             </div>
                             <div>
-                                <p className="text-sm font-semibold text-text-primary">Disciplinas sincronizadas automaticamente</p>
+                                <p className="text-sm font-semibold text-text-primary">Disciplinas lecionadas por voce</p>
                                 <p className="mt-1 text-sm leading-6 text-text-secondary">
-                                    Voce escolhe apenas os cursos academicos. As disciplinas aparecem depois de forma automatica quando houver alunos desses cursos com scraping atualizado na area do aluno.
+                                    Voce pode escolher as disciplinas especificas que voce leciona no cadastro e tambem edita-las depois no seu painel de perfil.
                                 </p>
                             </div>
                         </div>
@@ -241,7 +265,7 @@ export function ProfessorRegister() {
                                             onClick={() => toggleAcademicCourse(name)}
                                             className="flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-accent-purple/18"
                                         >
-                                            ×
+                                            x
                                         </button>
                                     </span>
                                 ))}
@@ -291,6 +315,49 @@ export function ProfessorRegister() {
                             </motion.div>
                         ) : null}
                     </div>
+
+                    {form.academic_courses.length > 0 && availableCourses.length > 0 ? (
+                        <motion.div 
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="rounded-2xl border border-border-subtle bg-slate-50/50 p-4 space-y-2.5"
+                        >
+                            <label className="block text-sm font-semibold text-text-secondary">
+                                Selecione as disciplinas que vocÃª ministra (opcional)
+                            </label>
+                            <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto sm:grid-cols-2 pr-1">
+                                {availableCourses.map((course) => {
+                                    const isChecked = selectedCourseIds.includes(course.id);
+                                    return (
+                                        <label
+                                            key={course.id || course.name}
+                                            className={`flex items-center gap-2.5 rounded-xl border p-2.5 cursor-pointer transition-all ${
+                                                isChecked
+                                                    ? 'border-accent-purple/30 bg-accent-purple/5 text-accent-purple font-semibold animate-pulse-subtle'
+                                                    : 'border-border-subtle bg-white/40 hover:bg-slate-100/50 text-text-secondary'
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={() => {
+                                                    if (isChecked) {
+                                                        setSelectedCourseIds(prev => prev.filter(id => id !== course.id));
+                                                    } else {
+                                                        if (course.id) {
+                                                            setSelectedCourseIds(prev => [...prev, course.id]);
+                                                        }
+                                                    }
+                                                }}
+                                                className="rounded border-border-subtle text-accent-purple focus:ring-accent-purple"
+                                            />
+                                            <span className="text-xs">{course.name}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </motion.div>
+                    ) : null}
 
                     <div className="flex items-center justify-between gap-3 pt-2">
                         <AuthBackButton onClick={() => navigate('/register')} label="Voltar" />

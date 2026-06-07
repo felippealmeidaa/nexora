@@ -44,11 +44,79 @@ class AnalyticsService:
         self.performance_predictor = PerformancePredictor()
         self.recommender = AcademicRecommender()
 
+        # Caches locais para otimização de performance (bulk queries)
+        self._grades_by_student = None
+        self._scraped_grades_by_student = None
+        self._attendances_by_student = None
+        self._scraped_attendances_by_student = None
+        self._enrollments_by_student = None
+        self._scraped_subjects_by_student = None
+
+    def _preload_caches(self, student_ids: List[int]):
+        """Pré-carrega todos os dados acadêmicos relevantes para os IDs dos alunos em lote na memória."""
+        if not student_ids:
+            return
+
+        self._grades_by_student = {sid: [] for sid in student_ids}
+        self._scraped_grades_by_student = {sid: [] for sid in student_ids}
+        self._attendances_by_student = {sid: [] for sid in student_ids}
+        self._scraped_attendances_by_student = {sid: [] for sid in student_ids}
+        self._enrollments_by_student = {sid: [] for sid in student_ids}
+        self._scraped_subjects_by_student = {sid: [] for sid in student_ids}
+
+        # 1. Carregar Grades
+        all_grades = self.db.query(Grade).filter(Grade.student_id.in_(student_ids)).all()
+        for g in all_grades:
+            if g.student_id in self._grades_by_student:
+                self._grades_by_student[g.student_id].append(g)
+
+        # 2. Carregar ScrapedGrade
+        all_scraped_grades = self.db.query(ScrapedGrade).filter(ScrapedGrade.student_id.in_(student_ids)).all()
+        for sg in all_scraped_grades:
+            if sg.student_id in self._scraped_grades_by_student:
+                self._scraped_grades_by_student[sg.student_id].append(sg)
+
+        # 3. Carregar Attendance
+        all_attendances = self.db.query(Attendance).filter(Attendance.student_id.in_(student_ids)).all()
+        for a in all_attendances:
+            if a.student_id in self._attendances_by_student:
+                self._attendances_by_student[a.student_id].append(a)
+
+        # 4. Carregar ScrapedAttendance
+        all_scraped_atts = self.db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id.in_(student_ids)).all()
+        for sa in all_scraped_atts:
+            if sa.student_id in self._scraped_attendances_by_student:
+                self._scraped_attendances_by_student[sa.student_id].append(sa)
+
+        # 5. Carregar Enrollment
+        all_enrollments = self.db.query(Enrollment).filter(Enrollment.student_id.in_(student_ids)).all()
+        for e in all_enrollments:
+            if e.student_id in self._enrollments_by_student:
+                self._enrollments_by_student[e.student_id].append(e)
+
+        # 6. Carregar ScrapedSubject
+        all_scraped_subs = self.db.query(ScrapedSubject).filter(ScrapedSubject.student_id.in_(student_ids)).all()
+        for ss in all_scraped_subs:
+            if ss.student_id in self._scraped_subjects_by_student:
+                self._scraped_subjects_by_student[ss.student_id].append(ss)
+
     # ─── Métodos auxiliares ───
 
     def _get_student_gpa(self, student_id: int) -> float:
-        """Calcula GPA ponderado de um aluno."""
-        grades = self.db.query(Grade).filter(Grade.student_id == student_id).all()
+        """Calcula GPA ponderado de um aluno, com fallback para notas do Lyceum."""
+        if self._scraped_grades_by_student is not None and student_id in self._scraped_grades_by_student:
+            has_scraped = len(self._scraped_grades_by_student[student_id]) > 0
+        else:
+            has_scraped = self.db.query(ScrapedGrade).filter(ScrapedGrade.student_id == student_id).count() > 0
+
+        if has_scraped:
+            return self._get_scraped_gpa(student_id)
+
+        if self._grades_by_student is not None and student_id in self._grades_by_student:
+            grades = self._grades_by_student[student_id]
+        else:
+            grades = self.db.query(Grade).filter(Grade.student_id == student_id).all()
+            
         if not grades:
             return 0.0
         total_weight = sum(g.weight for g in grades)
@@ -63,9 +131,13 @@ class AnalyticsService:
         if scraped_rate is not None:
             return scraped_rate
 
-        attendances = self.db.query(Attendance).filter(
-            Attendance.student_id == student_id
-        ).all()
+        if self._attendances_by_student is not None and student_id in self._attendances_by_student:
+            attendances = self._attendances_by_student[student_id]
+        else:
+            attendances = self.db.query(Attendance).filter(
+                Attendance.student_id == student_id
+            ).all()
+
         if not attendances:
             return 100.0
         present = sum(
@@ -75,7 +147,18 @@ class AnalyticsService:
         return _round(present / len(attendances) * 100, 2)
 
     def _get_student_failures(self, student_id: int) -> int:
-        """Conta reprovações de um aluno."""
+        """Conta reprovações de um aluno, com fallback para o Lyceum."""
+        if self._scraped_grades_by_student is not None and student_id in self._scraped_grades_by_student:
+            has_scraped = len(self._scraped_grades_by_student[student_id]) > 0
+        else:
+            has_scraped = self.db.query(ScrapedGrade).filter(ScrapedGrade.student_id == student_id).count() > 0
+
+        if has_scraped:
+            return self._get_scraped_failures(student_id)
+
+        if self._enrollments_by_student is not None and student_id in self._enrollments_by_student:
+            enrollments = self._enrollments_by_student[student_id]
+            return sum(1 for e in enrollments if e.status == EnrollmentStatus.FAILED)
         return self.db.query(Enrollment).filter(
             Enrollment.student_id == student_id,
             Enrollment.status == EnrollmentStatus.FAILED,
@@ -83,6 +166,10 @@ class AnalyticsService:
 
     def _get_student_semesters(self, student_id: int) -> int:
         """Conta semestres distintos de um aluno."""
+        if self._enrollments_by_student is not None and student_id in self._enrollments_by_student:
+            enrollments = self._enrollments_by_student[student_id]
+            semesters = set(e.semester for e in enrollments if e.semester)
+            return len(semesters) or 1
         result = self.db.query(
             func.count(func.distinct(Enrollment.semester))
         ).filter(Enrollment.student_id == student_id).scalar()
@@ -94,15 +181,21 @@ class AnalyticsService:
         Usa diferença entre média recente e média geral.
         """
         # Tentar primeiro scraped_grades
-        grades = self.db.query(ScrapedGrade).filter(
-            ScrapedGrade.student_id == student_id
-        ).all()
+        if self._scraped_grades_by_student is not None and student_id in self._scraped_grades_by_student:
+            grades = self._scraped_grades_by_student[student_id]
+        else:
+            grades = self.db.query(ScrapedGrade).filter(
+                ScrapedGrade.student_id == student_id
+            ).all()
         
         # Fallback para Grade regular se não houver scraped
         if not grades:
-            grades = self.db.query(Grade).filter(
-                Grade.student_id == student_id
-            ).order_by(Grade.id).all()
+            if self._grades_by_student is not None and student_id in self._grades_by_student:
+                grades = sorted(self._grades_by_student[student_id], key=lambda g: g.id)
+            else:
+                grades = self.db.query(Grade).filter(
+                    Grade.student_id == student_id
+                ).order_by(Grade.id).all()
 
         if len(grades) < 2:
             return 0.0
@@ -117,7 +210,11 @@ class AnalyticsService:
 
     def _get_scraped_gpa(self, student_id: int) -> float:
         """Calcula GPA a partir de notas sincronizadas do Lyceum."""
-        grades = self.db.query(ScrapedGrade).filter(ScrapedGrade.student_id == student_id).all()
+        if self._scraped_grades_by_student is not None and student_id in self._scraped_grades_by_student:
+            grades = self._scraped_grades_by_student[student_id]
+        else:
+            grades = self.db.query(ScrapedGrade).filter(ScrapedGrade.student_id == student_id).all()
+            
         if not grades:
             return 0.0
         
@@ -132,9 +229,12 @@ class AnalyticsService:
         Verifica se o aluno está no início do período (sem notas lançadas).
         Retorna True se existem disciplinas mas nenhuma tem nota > 0.
         """
-        scraped_grades = self.db.query(ScrapedGrade).filter(
-            ScrapedGrade.student_id == student_id
-        ).all()
+        if self._scraped_grades_by_student is not None and student_id in self._scraped_grades_by_student:
+            scraped_grades = self._scraped_grades_by_student[student_id]
+        else:
+            scraped_grades = self.db.query(ScrapedGrade).filter(
+                ScrapedGrade.student_id == student_id
+            ).all()
         
         # Se tem disciplinas scraped mas nenhuma nota válida
         if scraped_grades:
@@ -143,13 +243,19 @@ class AnalyticsService:
                 return True
         
         # Se tem disciplinas (subjects) mas sem grades
-        has_subjects = self.db.query(ScrapedSubject).filter(
-            ScrapedSubject.student_id == student_id
-        ).count() > 0
+        if self._scraped_subjects_by_student is not None and student_id in self._scraped_subjects_by_student:
+            has_subjects = len(self._scraped_subjects_by_student[student_id]) > 0
+        else:
+            has_subjects = self.db.query(ScrapedSubject).filter(
+                ScrapedSubject.student_id == student_id
+            ).count() > 0
         
-        has_grades = self.db.query(ScrapedGrade).filter(
-            ScrapedGrade.student_id == student_id
-        ).count() > 0
+        if self._scraped_grades_by_student is not None and student_id in self._scraped_grades_by_student:
+            has_grades = len(self._scraped_grades_by_student[student_id]) > 0
+        else:
+            has_grades = self.db.query(ScrapedGrade).filter(
+                ScrapedGrade.student_id == student_id
+            ).count() > 0
         
         if has_subjects and not has_grades:
             return True
@@ -158,9 +264,13 @@ class AnalyticsService:
 
     def _get_scraped_attendance_rate(self, student_id: int) -> float | None:
         """Calcula taxa de presença média das disciplinas sincronizadas."""
-        attendances = self.db.query(ScrapedAttendance).filter(
-            ScrapedAttendance.student_id == student_id
-        ).all()
+        if self._scraped_attendances_by_student is not None and student_id in self._scraped_attendances_by_student:
+            attendances = self._scraped_attendances_by_student[student_id]
+        else:
+            attendances = self.db.query(ScrapedAttendance).filter(
+                ScrapedAttendance.student_id == student_id
+            ).all()
+            
         if not attendances:
             return None
 
@@ -175,7 +285,10 @@ class AnalyticsService:
 
     def _get_scraped_failures(self, student_id: int) -> int:
         """Conta disciplinas com situação de reprovação no Lyceum."""
-        # Consideramos 'Reprovado' ou situações similares
+        if self._scraped_grades_by_student is not None and student_id in self._scraped_grades_by_student:
+            grades = self._scraped_grades_by_student[student_id]
+            return sum(1 for g in grades if g.situacao and "Reprovado" in g.situacao)
+            
         return self.db.query(ScrapedGrade).filter(
             ScrapedGrade.student_id == student_id,
             ScrapedGrade.situacao.ilike("%Reprovado%")
@@ -307,6 +420,7 @@ class AnalyticsService:
         # Calcular GPAs de todos os alunos filtrados
         active_students_list = student_query.all()
         active_ids = [s.id for s in active_students_list]
+        self._preload_caches(active_ids)
 
         gpas = [self._get_student_gpa(sid) for sid in active_ids]
         attendance_rates = [self._get_student_attendance_rate(sid) for sid in active_ids]
@@ -427,6 +541,7 @@ class AnalyticsService:
             student_query = student_query.filter(Student.id.in_(enrollment_sids))
 
         students = student_query.all()
+        self._preload_caches([s.id for s in students])
 
         gpas = []
         attendance_rates = []
@@ -479,6 +594,7 @@ class AnalyticsService:
             student_query = student_query.filter(Student.id.in_(enrollment_sids))
 
         students = student_query.all()
+        self._preload_caches([s.id for s in students])
 
         if len(students) < 5:
             return {"error": "Mínimo de 5 alunos ativos para análise PCA"}
@@ -520,6 +636,7 @@ class AnalyticsService:
         students = student_query.all()
         if not students:
             return {"model_info": {}, "predictions": []}
+        self._preload_caches([s.id for s in students])
 
         # Montar features
         all_features = []
@@ -595,6 +712,7 @@ class AnalyticsService:
             student_query = student_query.filter(Student.id.in_(enrollment_sids))
 
         students = student_query.all()
+        self._preload_caches([s.id for s in students])
 
         students_data = []
         for s in students:

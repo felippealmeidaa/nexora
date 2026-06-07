@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarDays, Menu, ShieldCheck } from 'lucide-react';
+import { CalendarDays, Menu, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { AnimatedBackground } from '../ui/AnimatedBackground';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +23,23 @@ export function Layout() {
     const role = user?.role?.toLowerCase();
     const roleMeta = getRoleMeta(role);
     const pageMeta = getPageMeta(location.pathname, role);
+
+    const [theme, setTheme] = React.useState(() => {
+        return localStorage.getItem('theme') || 'light';
+    });
+
+    React.useEffect(() => {
+        if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+        localStorage.setItem('theme', theme);
+    }, [theme]);
+
+    const toggleTheme = () => {
+        setTheme(prev => prev === 'light' ? 'dark' : 'light');
+    };
 
     React.useEffect(() => {
         setSidebarOpen(false);
@@ -71,13 +88,13 @@ export function Layout() {
             <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
             <div className="relative lg:pl-72">
-                <header className="sticky top-0 z-30 border-b border-white/60 bg-bg-primary/75 backdrop-blur-xl">
+                <header className="sticky top-0 z-30 border-b border-border-subtle bg-bg-primary/75 backdrop-blur-xl">
                     <div className="mx-auto flex max-w-[1480px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
                         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
                             <button
                                 type="button"
                                 onClick={() => setSidebarOpen(true)}
-                                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border-subtle bg-white text-text-secondary transition-colors hover:border-border-hover hover:text-text-primary lg:hidden"
+                                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border-subtle bg-bg-card text-text-secondary transition-colors hover:border-border-hover hover:text-text-primary lg:hidden"
                                 aria-label="Abrir menu"
                             >
                                 <Menu className="h-5 w-5" />
@@ -100,12 +117,27 @@ export function Layout() {
                         </div>
 
                         <div className="flex items-center gap-3">
-                            <div className="hidden items-center gap-3 rounded-2xl border border-border-subtle bg-white px-4 py-3 text-sm text-text-secondary shadow-sm md:flex">
+                            {/* Dark Mode Toggle Button */}
+                            <button
+                                type="button"
+                                onClick={toggleTheme}
+                                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border-subtle bg-bg-card text-text-secondary transition-colors hover:border-border-hover hover:text-text-primary shadow-sm"
+                                aria-label="Alternar tema"
+                                title={theme === 'light' ? 'Ligar Modo Escuro' : 'Desativar Modo Escuro'}
+                            >
+                                {theme === 'light' ? (
+                                    <Moon className="h-5 w-5 text-accent-purple" />
+                                ) : (
+                                    <Sun className="h-5 w-5 text-amber-400" />
+                                )}
+                            </button>
+
+                            <div className="hidden items-center gap-3 rounded-2xl border border-border-subtle bg-bg-card px-4 py-3 text-sm text-text-secondary shadow-sm md:flex">
                                 <CalendarDays className="h-4 w-4 text-accent-blue" />
                                 {formatToday()}
                             </div>
 
-                            <div className="flex items-center gap-3 rounded-2xl border border-border-subtle bg-white px-3 py-2 shadow-sm">
+                            <div className="flex items-center gap-3 rounded-2xl border border-border-subtle bg-bg-card px-3 py-2 shadow-sm">
                                 <div className={`hidden h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br ${roleMeta.accent} text-sm font-bold text-white sm:flex`}>
                                     {getInitials(user?.full_name || user?.username)}
                                 </div>

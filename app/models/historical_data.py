@@ -31,6 +31,15 @@ class HistoricalRecord(BaseModel):
     
     # Quem subiu o arquivo
     professor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    
+
+    # Relação com a planilha de origem
+    spreadsheet_id = Column(
+        Integer,
+        ForeignKey("historical_spreadsheets.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    spreadsheet = relationship("HistoricalSpreadsheet", back_populates="records")
+
     def __repr__(self) -> str:
         return f"<HistoricalRecord(id={self.id}, semester='{self.semester}', student='{self.student_name}')>"

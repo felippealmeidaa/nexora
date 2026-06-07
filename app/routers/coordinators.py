@@ -60,12 +60,16 @@ def get_my_students(
     if not coordinator:
         raise HTTPException(status_code=404, detail="Perfil de coordenador não encontrado")
 
+    from sqlalchemy import exists
+    from app.models.scraped_data import ScrapedSubject
     students = (
         db.query(Student)
         .filter(
             Student.course_name == coordinator.academic_course_name,
             Student.status == StudentStatus.ACTIVE,
+            Student.last_sync_at.isnot(None)
         )
+        .filter(exists().where(ScrapedSubject.student_id == Student.id))
         .order_by(Student.name)
         .all()
     )
@@ -94,50 +98,94 @@ def get_my_subjects(
     if not coordinator:
         raise HTTPException(status_code=404, detail="Perfil de coordenador não encontrado")
 
-    # Buscar disciplinas que têm alunos do curso do coordenador
-    courses = (
-        db.query(Course)
-        .join(Enrollment, Enrollment.course_id == Course.id)
-        .join(Student, Student.id == Enrollment.student_id)
-        .filter(Student.course_name == coordinator.academic_course_name)
-        .distinct()
+    from sqlalchemy import exists
+    from app.models.scraped_data import ScrapedSubject
+    from app.utils.subject_name import clean_subject_name, normalize_subject_key
+
+    # Obter apenas alunos ativos e sincronizados do curso do coordenador
+    students = (
+        db.query(Student)
+        .filter(
+            Student.course_name == coordinator.academic_course_name,
+            Student.status == StudentStatus.ACTIVE,
+            Student.last_sync_at.isnot(None)
+        )
+        .filter(exists().where(ScrapedSubject.student_id == Student.id))
+        .all()
+    )
+    student_ids = [s.id for s in students]
+    if not student_ids:
+        return []
+
+    # Obter todas as disciplinas raspadas dos alunos válidos
+    scraped_subjects = (
+        db.query(ScrapedSubject)
+        .filter(ScrapedSubject.student_id.in_(student_ids))
         .all()
     )
 
-    result = []
-    for course in courses:
-        enrollments = (
-            db.query(Enrollment)
-            .join(Student, Student.id == Enrollment.student_id)
-            .filter(
-                Enrollment.course_id == course.id,
-                Student.course_name == coordinator.academic_course_name,
+    # Catálogo institucional de disciplinas
+    catalog_courses = db.query(Course).all()
+    course_by_subject_key = {
+        normalize_subject_key(course.name): course
+        for course in catalog_courses
+        if course.name and normalize_subject_key(course.name)
+    }
+
+    # Agrupar estudantes por disciplina
+    student_map = {s.id: s for s in students}
+    grouped_subjects = {}
+
+    for ss in scraped_subjects:
+        subj_name = ss.disciplina
+        if not ss.student_id:
+            continue
+        if not subj_name:
+            continue
+        cleaned_name = clean_subject_name(subj_name)
+        subject_key = normalize_subject_key(cleaned_name)
+        if not subject_key:
+            continue
+        if "metodologia" in subject_key or "trabalhocientifico" in subject_key:
+            continue
+
+        student = student_map.get(ss.student_id)
+        if not student:
+            continue
+
+        matched_course = course_by_subject_key.get(subject_key)
+
+        entry = grouped_subjects.setdefault(subject_key, {
+            "course_id": matched_course.id if matched_course else None,
+            "course_name": clean_subject_name(matched_course.name if matched_course and matched_course.name else cleaned_name),
+            "course_code": matched_course.code if matched_course else "",
+            "students_dict": {}
+        })
+
+        if student.id not in entry["students_dict"]:
+            class_schedule = student.class_schedule.value if student.class_schedule and hasattr(student.class_schedule, "value") else (student.class_schedule if isinstance(student.class_schedule, str) else None)
+            entry["students_dict"][student.id] = CoordinatorStudentResponse(
+                student_id=student.id,
+                student_name=student.name,
+                registration_number=student.registration_number,
+                course_name=student.course_name,
+                current_period=student.current_period,
+                class_schedule=class_schedule,
             )
-            .all()
-        )
 
-        students_list = []
-        for enrollment in enrollments:
-            student = db.query(Student).filter(Student.id == enrollment.student_id).first()
-            if student:
-                students_list.append(CoordinatorStudentResponse(
-                    student_id=student.id,
-                    student_name=student.name,
-                    registration_number=student.registration_number,
-                    course_name=student.course_name,
-                    current_period=student.current_period,
-                    class_schedule=student.class_schedule.value if student.class_schedule and hasattr(student.class_schedule, "value") else (student.class_schedule if isinstance(student.class_schedule, str) else None),
-                ))
-
-        students_list.sort(key=lambda s: s.current_period or 0)
-
+    result = []
+    for key in sorted(grouped_subjects.keys()):
+        entry = grouped_subjects[key]
+        students_list = list(entry["students_dict"].values())
+        students_list.sort(key=lambda s: (s.current_period or 0, s.student_name))
         result.append(CoordinatorSubjectStudents(
-            course_id=course.id,
-            course_name=course.name,
-            course_code=course.code,
+            course_id=entry["course_id"],
+            course_name=entry["course_name"],
+            course_code=entry["course_code"],
             students=students_list,
         ))
 
+    result.sort(key=lambda r: r.course_name.lower())
     return result
 
 
@@ -148,25 +196,28 @@ def get_my_overview(
 ):
     """
     Retorna overview analítico com KPIs calculados para todos os alunos
-    do curso que o coordenador coordena.
+    do curso que o coordenador coordena com base em dados do Lyceum.
     """
     coordinator = db.query(Coordinator).filter(Coordinator.user_id == current_user.id).first()
     if not coordinator:
         raise HTTPException(status_code=404, detail="Perfil de coordenador não encontrado")
 
     from app.services.analytics_service import AnalyticsService
-    from app.models.grade import Grade
+    from app.models.scraped_data import ScrapedGrade, ScrapedSubject
     from app.analytics.utils import _round
+    from sqlalchemy import exists
 
     service = AnalyticsService(db)
 
-    # Buscar todos os alunos do curso do coordenador
+    # Buscar apenas alunos ativos e sincronizados do curso do coordenador
     students = (
         db.query(Student)
         .filter(
             Student.course_name == coordinator.academic_course_name,
             Student.status == StudentStatus.ACTIVE,
+            Student.last_sync_at.isnot(None)
         )
+        .filter(exists().where(ScrapedSubject.student_id == Student.id))
         .all()
     )
 
@@ -183,32 +234,20 @@ def get_my_overview(
 
     active_ids = [s.id for s in students]
 
-    # Contar disciplinas do curso
+    # Contar disciplinas ativas do curso no Lyceum
     subject_count = (
-        db.query(Course)
-        .join(Enrollment, Enrollment.course_id == Course.id)
-        .join(Student, Student.id == Enrollment.student_id)
-        .filter(Student.course_name == coordinator.academic_course_name)
+        db.query(ScrapedSubject.disciplina)
+        .filter(ScrapedSubject.student_id.in_(active_ids))
         .distinct()
         .count()
     )
 
-    # KPIs
-    gpas = [service._get_student_gpa(sid) for sid in active_ids]
+    # KPIs de notas e frequência raspadas do Lyceum
+    gpas = [service._get_scraped_gpa(sid) for sid in active_ids]
     attendance_rates = [service._get_student_attendance_rate(sid) for sid in active_ids]
 
-    # Buscar IDs de cursos relevantes
-    course_ids = (
-        db.query(Course.id)
-        .join(Enrollment, Enrollment.course_id == Course.id)
-        .join(Student, Student.id == Enrollment.student_id)
-        .filter(Student.course_name == coordinator.academic_course_name)
-        .distinct()
-        .all()
-    )
-    course_ids = [cid[0] for cid in course_ids]
-
-    all_grades = [g.value for g in db.query(Grade).filter(Grade.course_id.in_(course_ids)).all()] if course_ids else []
+    all_scraped_grades = db.query(ScrapedGrade).filter(ScrapedGrade.student_id.in_(active_ids)).all()
+    all_grades = [g.media for g in all_scraped_grades if g.media > 0]
 
     avg_gpa = _round(sum(gpas) / len(gpas), 2) if gpas else 0.0
     avg_att = _round(sum(attendance_rates) / len(attendance_rates), 2) if attendance_rates else 0.0
@@ -230,7 +269,7 @@ def get_my_overview(
     # Top at risk
     student_risks = []
     for s in students:
-        gpa = service._get_student_gpa(s.id)
+        gpa = service._get_scraped_gpa(s.id)
         att = service._get_student_attendance_rate(s.id)
         risk_score = max(0.0, min(1.0, (1 - gpa / 10) * 0.6 + (1 - att / 100) * 0.4))
         student_risks.append({
@@ -258,3 +297,4 @@ def get_my_overview(
         "risk_summary": risk_summary,
         "top_at_risk": student_risks[:10],
     }
+

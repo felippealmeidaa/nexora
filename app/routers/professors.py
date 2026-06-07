@@ -33,19 +33,9 @@ def _build_student_subject_key_map(db: Session, student_ids: list[int]) -> dict[
             subject_key = normalize_subject_key(name)
             if not subject_key:
                 continue
+            if "metodologia" in subject_key or "trabalhocientifico" in subject_key:
+                continue
             subject_map.setdefault(student_id, set()).add(subject_key)
-
-    enrollment_rows = (
-        db.query(Enrollment.student_id, Course.name)
-        .join(Course, Course.id == Enrollment.course_id)
-        .filter(Enrollment.student_id.in_(student_ids))
-        .all()
-    )
-    for student_id, name in enrollment_rows:
-        subject_key = normalize_subject_key(name)
-        if not subject_key:
-            continue
-        subject_map.setdefault(student_id, set()).add(subject_key)
 
     return subject_map
 
@@ -65,20 +55,9 @@ def _build_student_subject_label_map(db: Session, student_ids: list[int]) -> dic
             cleaned_name = clean_subject_name(name)
             subject_key = normalize_subject_key(cleaned_name)
             if subject_key and subject_key not in label_map:
+                if "metodologia" in subject_key or "trabalhocientifico" in subject_key:
+                    continue
                 label_map[subject_key] = cleaned_name
-
-    enrollment_rows = (
-        db.query(Course.name)
-        .join(Enrollment, Enrollment.course_id == Course.id)
-        .filter(Enrollment.student_id.in_(student_ids))
-        .distinct()
-        .all()
-    )
-    for (name,) in enrollment_rows:
-        cleaned_name = clean_subject_name(name)
-        subject_key = normalize_subject_key(cleaned_name)
-        if subject_key and subject_key not in label_map:
-            label_map[subject_key] = cleaned_name
 
     return label_map
 
@@ -132,8 +111,12 @@ def _build_professor_course_catalog(
     *,
     include_students: bool = False,
 ) -> list[dict]:
+    from sqlalchemy import exists
     academic_course_names = _get_professor_academic_courses(db, professor, current_user)
-    query = db.query(Student).filter(Student.status == StudentStatus.ACTIVE)
+    query = db.query(Student).filter(
+        Student.status == StudentStatus.ACTIVE,
+        Student.last_sync_at.isnot(None)
+    ).filter(exists().where(ScrapedSubject.student_id == Student.id))
 
     if academic_course_names:
         query = query.filter(Student.course_name.in_(academic_course_names))
@@ -220,10 +203,8 @@ def _resolve_professor_profile(db: Session, current_user: User, create_for_admin
     db.flush()
     db.refresh(professor)
     return professor
-
-
 def _get_professor_academic_courses(db: Session, professor: Professor | None, current_user: User) -> list[str]:
-    academic_course_names = [ac.course_name for ac in (professor.academic_courses if professor else []) if ac.course_name]
+    academic_course_names = [ac.course_name for ac in (professor.academic_courses if professor else []) if ac.course_name and normalize_subject_key(ac.course_name) != "engenhariadesoftware"]
     if academic_course_names or current_user.role != UserRole.ADMIN:
         return academic_course_names
 
@@ -233,12 +214,16 @@ def _get_professor_academic_courses(db: Session, professor: Professor | None, cu
         .distinct()
         .all()
     )
-    return sorted({row[0] for row in rows if row[0]})
+    return sorted({row[0] for row in rows if row[0] and normalize_subject_key(row[0]) != "engenhariadesoftware"})
 
 
 def _get_professor_student_ids(db: Session, professor: Professor | None, current_user: User) -> list[int]:
+    from sqlalchemy import exists
     academic_course_names = _get_professor_academic_courses(db, professor, current_user)
-    query = db.query(Student.id).filter(Student.status == StudentStatus.ACTIVE)
+    query = db.query(Student.id).filter(
+        Student.status == StudentStatus.ACTIVE,
+        Student.last_sync_at.isnot(None)
+    ).filter(exists().where(ScrapedSubject.student_id == Student.id))
 
     if academic_course_names:
         query = query.filter(Student.course_name.in_(academic_course_names))
@@ -329,6 +314,8 @@ def get_my_students(
 
     result = []
     for entry in _build_professor_course_catalog(db, professor, current_user, include_students=True):
+        if current_user.role != UserRole.ADMIN and not entry["selected"]:
+            continue
         result.append({
             "academic_course_name": entry["academic_course_name"],
             "course_id": entry["id"],
@@ -362,14 +349,11 @@ def update_my_courses(
         if course_id not in selected_course_ids:
             selected_course_ids.append(course_id)
 
-    available_course_ids = {
-        course["id"]
-        for course in _serialize_professor_courses(db, professor, current_user)
-        if course.get("id")
-    }
-    invalid_ids = [course_id for course_id in selected_course_ids if course_id not in available_course_ids]
+    valid_courses = db.query(Course.id).filter(Course.id.in_(selected_course_ids)).all()
+    valid_course_ids = {vc[0] for vc in valid_courses}
+    invalid_ids = [course_id for course_id in selected_course_ids if course_id not in valid_course_ids]
     if invalid_ids:
-        raise HTTPException(status_code=400, detail="Uma ou mais disciplinas nao pertencem ao seu escopo atual.")
+        raise HTTPException(status_code=400, detail="Uma ou mais disciplinas nao pertencem ao catalogo institucional.")
 
     db.query(ProfessorCourse).filter(ProfessorCourse.professor_id == professor.id).delete(synchronize_session=False)
     for course_id in selected_course_ids:
@@ -405,9 +389,27 @@ def get_my_overview(
 
     service = AnalyticsService(db)
 
-    student_ids = _get_professor_student_ids(db, professor, current_user)
-    discipline_names = _get_professor_subject_names(db, student_ids)
     prof_course_ids = [course.id for course in _get_professor_course_records(db, professor, current_user) if course.id]
+
+    if current_user.role != UserRole.ADMIN:
+        selected_course_ids = _get_selected_professor_course_ids(professor)
+        prof_course_ids = list(selected_course_ids)
+        if prof_course_ids:
+            catalog = _build_professor_course_catalog(db, professor, current_user, include_students=True)
+            seen_student_ids = set()
+            for entry in catalog:
+                if entry.get("selected"):
+                    for s in entry.get("students", []):
+                        seen_student_ids.add(s["student_id"])
+            student_ids = list(seen_student_ids)
+            courses = db.query(Course).filter(Course.id.in_(prof_course_ids)).all()
+            discipline_names = [clean_subject_name(c.name) for c in courses if c.name]
+        else:
+            student_ids = []
+            discipline_names = []
+    else:
+        student_ids = _get_professor_student_ids(db, professor, current_user)
+        discipline_names = _get_professor_subject_names(db, student_ids)
 
     if course_id:
         course = db.query(Course).filter(Course.id == course_id).first()
@@ -423,7 +425,16 @@ def get_my_overview(
         ]
 
     if not student_ids and current_user.role == UserRole.ADMIN:
-        active_students = db.query(Student).filter(Student.status == StudentStatus.ACTIVE).all()
+        from sqlalchemy import exists
+        active_students = (
+            db.query(Student)
+            .filter(
+                Student.status == StudentStatus.ACTIVE,
+                Student.last_sync_at.isnot(None)
+            )
+            .filter(exists().where(ScrapedSubject.student_id == Student.id))
+            .all()
+        )
         student_ids = [student.id for student in active_students]
 
     if not student_ids:
@@ -444,9 +455,22 @@ def get_my_overview(
     active_students = db.query(Student).filter(Student.id.in_(student_ids), Student.status == StudentStatus.ACTIVE).all()
     active_ids = [student.id for student in active_students]
 
-    gpas = [service._get_student_gpa(student_id) for student_id in active_ids]
+    gpas = [service._get_scraped_gpa(student_id) for student_id in active_ids]
     attendance_rates = [service._get_student_attendance_rate(student_id) for student_id in active_ids]
-    all_grades = [grade.value for grade in db.query(Grade).filter(Grade.course_id.in_(prof_course_ids)).all()] if prof_course_ids else []
+    
+    if prof_course_ids:
+        selected_courses = db.query(Course).filter(Course.id.in_(prof_course_ids)).all()
+        selected_keys = {normalize_subject_key(c.name) for c in selected_courses if c.name}
+        all_scraped_grades = db.query(ScrapedGrade).filter(ScrapedGrade.student_id.in_(active_ids)).all()
+        all_grades = [
+            g.media for g in all_scraped_grades
+            if normalize_subject_key(g.disciplina) in selected_keys and g.media > 0
+        ]
+    else:
+        all_grades = [
+            g.media for g in db.query(ScrapedGrade).filter(ScrapedGrade.student_id.in_(active_ids)).all()
+            if g.media > 0
+        ]
 
     avg_gpa = _round(sum(gpas) / len(gpas), 2) if gpas else 0.0
     avg_attendance = _round(sum(attendance_rates) / len(attendance_rates), 2) if attendance_rates else 0.0
@@ -466,7 +490,7 @@ def get_my_overview(
 
     student_risks = []
     for student in active_students:
-        gpa = service._get_student_gpa(student.id)
+        gpa = service._get_scraped_gpa(student.id)
         attendance = service._get_student_attendance_rate(student.id)
         risk_score = max(0.0, min(1.0, (1 - gpa / 10) * 0.6 + (1 - attendance / 100) * 0.4))
         student_risks.append({

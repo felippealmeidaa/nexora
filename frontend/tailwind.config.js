@@ -2,6 +2,7 @@
 import defaultTheme from 'tailwindcss/defaultTheme';
 
 export default {
+    darkMode: 'class',
     content: [
         './index.html',
         './src/**/*.{js,ts,jsx,tsx}',
@@ -13,18 +14,18 @@ export default {
                 danger: '#DC2626',
                 warning: '#F59E0B',
                 bg: {
-                    primary: '#F6F8FC',
-                    secondary: '#EEF4FF',
-                    tertiary: '#E6EEFF',
-                    elevated: '#F8FAFF',
-                    card: '#FFFFFF',
-                    'card-hover': '#F8FBFF',
+                    primary: 'var(--bg-primary)',
+                    secondary: 'var(--bg-secondary)',
+                    tertiary: 'var(--bg-tertiary)',
+                    elevated: 'var(--bg-elevated)',
+                    card: 'var(--bg-card)',
+                    'card-hover': 'var(--bg-card-hover)',
                 },
                 text: {
-                    primary: '#0F172A',
-                    secondary: '#475569',
-                    tertiary: '#64748B',
-                    inverse: '#F8FAFC',
+                    primary: 'var(--text-primary)',
+                    secondary: 'var(--text-secondary)',
+                    tertiary: 'var(--text-tertiary)',
+                    inverse: 'var(--text-inverse)',
                 },
                 accent: {
                     'blue-dark': '#003B8F',
@@ -39,10 +40,10 @@ export default {
                     cyan: '#38BDF8',
                 },
                 border: {
-                    subtle: '#E2E8F0',
-                    hover: '#CBD5E1',
-                    strong: '#B6C3DA',
-                    glow: 'rgba(106, 27, 255, 0.18)',
+                    subtle: 'var(--border-subtle)',
+                    hover: 'var(--border-hover)',
+                    strong: 'var(--border-strong)',
+                    glow: 'var(--border-glow)',
                 },
                 gray: {
                     50: '#F8FAFC',

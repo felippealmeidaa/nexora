@@ -38,7 +38,11 @@ function dedupeSubjects(subjects) {
         if (!key || unique.has(key)) continue;
         unique.set(key, subject);
     }
-    return Array.from(unique.values()).sort((left, right) => left.name.localeCompare(right.name));
+    return Array.from(unique.values()).sort((left, right) => {
+        const leftName = left?.name || '';
+        const rightName = right?.name || '';
+        return leftName.localeCompare(rightName);
+    });
 }
 
 export function ProfessorProfile() {
@@ -186,15 +190,8 @@ export function ProfessorProfile() {
             </div>
         );
     }
-
-    const filteredCourses = availableCourses
-        .filter((course) => normalizeText(course).includes(normalizeText(courseSearch)))
-        .filter((course) => !academicCourses.some((selected) => normalizeText(selected) === normalizeText(course)));
-
-    const linkedSubjectsPreview = useMemo(
-        () => linkedSubjects.slice(0, 8),
-        [linkedSubjects]
-    );
+    let filteredCourses = [];
+    let linkedSubjectsPreview = [];
 
     return (
         <motion.div
@@ -238,7 +235,7 @@ export function ProfessorProfile() {
                                     <span key={name} className="inline-flex items-center gap-1.5 rounded-full border border-accent-purple/20 bg-accent-purple/12 px-3 py-1.5 text-xs font-medium text-accent-purple">
                                         {name}
                                         <button type="button" onClick={() => toggleAcademicCourse(name)} className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-accent-purple/18">
-                                            ×
+                                            x
                                         </button>
                                     </span>
                                 ))}

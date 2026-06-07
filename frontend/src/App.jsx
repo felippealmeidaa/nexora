@@ -52,14 +52,16 @@ function App() {
                         <Route path="professor/dashboard" element={<ProfessorDashboard />} />
                         <Route path="professor/courses" element={<ProfessorCourses />} />
                         <Route path="professor/profile" element={<ProfessorProfile />} />
-                        <Route path="professor/historical-data" element={<HistoricalData />} />
+                        <Route path="professor/historical-upload" element={<HistoricalData defaultTab="upload" />} />
+                        <Route path="professor/historical-data" element={<HistoricalData defaultTab="history" />} />
                         <Route path="professor/analysis-center" element={<AnalysisCenter />} />
 
                         {/* Proreitor routes */}
                         <Route path="proreitor/dashboard" element={<ProfessorDashboard />} />
                         <Route path="proreitor/courses" element={<ProfessorCourses />} />
                         <Route path="proreitor/profile" element={<ProfessorProfile />} />
-                        <Route path="proreitor/historical-data" element={<HistoricalData />} />
+                        <Route path="proreitor/historical-upload" element={<HistoricalData defaultTab="upload" />} />
+                        <Route path="proreitor/historical-data" element={<HistoricalData defaultTab="history" />} />
                         <Route path="proreitor/analysis-center" element={<AnalysisCenter />} />
 
                         {/* Coordinator routes */}

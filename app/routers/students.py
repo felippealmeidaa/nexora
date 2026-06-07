@@ -15,6 +15,10 @@ from app.models.coordinator import Coordinator
 from app.models.student import Student, StudentStatus
 from app.models.user import User, UserRole
 from app.models.scraped_data import ScrapedGrade, ScrapedAttendance, ScrapedSubject, ScrapedSchedule
+from app.models.grade import Grade
+from app.models.attendance import Attendance, AttendanceStatus
+from app.models.enrollment import Enrollment, EnrollmentStatus
+from app.models.course import Course
 from app.schemas.student import StudentCreate, StudentUpdate, StudentResponse, StudentListResponse
 from app.security.auth import get_current_user
 from app.security.access import can_user_access_student, scope_students_query
@@ -466,6 +470,44 @@ def get_student_detail(
         }
         for g in scraped_grades
     ]
+    if not grades:
+        db_grades = db.query(Grade).filter(Grade.student_id == student.id).all()
+        grades_by_course = {}
+        for g in db_grades:
+            course_name = g.course.name if g.course else "Disciplina Desconhecida"
+            desc = (g.description or "").upper()
+            val = g.value
+            entry = grades_by_course.setdefault(course_name, {
+                "disciplina": course_name,
+                "va1": None,
+                "va2": None,
+                "va3": None,
+                "media": None,
+                "situacao": "Cursando",
+            })
+            if "VA1" in desc or "P1" in desc:
+                entry["va1"] = val
+            elif "VA2" in desc or "P2" in desc:
+                entry["va2"] = val
+            elif "VA3" in desc or "P3" in desc:
+                entry["va3"] = val
+            elif "MEDIA" in desc or "MÉDIA" in desc or "FINAL" in desc:
+                entry["media"] = val
+            else:
+                if entry["va1"] is None:
+                    entry["va1"] = val
+                elif entry["va2"] is None:
+                    entry["va2"] = val
+                elif entry["va3"] is None:
+                    entry["va3"] = val
+        for entry in grades_by_course.values():
+            if entry["media"] is None:
+                vals = [v for v in [entry["va1"], entry["va2"], entry["va3"]] if v is not None]
+                if vals:
+                    entry["media"] = round(sum(vals) / len(vals), 2)
+            if entry["media"] is not None:
+                entry["situacao"] = "Aprovado" if entry["media"] >= 6.0 else "Reprovado"
+        grades = list(grades_by_course.values())
 
     # Frequência scraped
     scraped_att = db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student.id).all()
@@ -479,6 +521,33 @@ def get_student_detail(
             "percentual_presenca": attendance_payload["percentual_presenca"],
             "faltas_confirmadas": attendance_payload["faltas_confirmadas"],
         })
+    if not attendance:
+        db_att = db.query(Attendance).filter(Attendance.student_id == student.id).all()
+        att_by_course = {}
+        for a in db_att:
+            course_name = a.course.name if a.course else "Disciplina Desconhecida"
+            entry = att_by_course.setdefault(course_name, {
+                "disciplina": course_name,
+                "total_faltas": 0,
+                "total_aulas": 0,
+                "presentes": 0,
+            })
+            entry["total_aulas"] += 1
+            if a.status == AttendanceStatus.ABSENT:
+                entry["total_faltas"] += 1
+            else:
+                entry["presentes"] += 1
+        for entry in att_by_course.values():
+            pct = 100.0
+            if entry["total_aulas"] > 0:
+                pct = round((entry["presentes"] / entry["total_aulas"]) * 100.0, 2)
+            attendance.append({
+                "disciplina": entry["disciplina"],
+                "total_faltas": entry["total_faltas"],
+                "total_aulas": entry["total_aulas"],
+                "percentual_presenca": pct,
+                "faltas_confirmadas": [],
+            })
 
     scraped_subjects = db.query(ScrapedSubject).filter(ScrapedSubject.student_id == student.id).all()
     subjects = [
@@ -491,6 +560,23 @@ def get_student_detail(
         }
         for s in scraped_subjects
     ]
+    if not subjects:
+        db_enrollments = db.query(Enrollment).filter(Enrollment.student_id == student.id).all()
+        for e in db_enrollments:
+            course_name = e.course.name if e.course else "Disciplina Desconhecida"
+            situacao = "Matriculado"
+            if grades:
+                for g in grades:
+                    if g["disciplina"] == course_name:
+                        situacao = g["situacao"]
+                        break
+            subjects.append({
+                "disciplina": course_name,
+                "situacao": situacao,
+                "periodo": student.current_period,
+                "docente": "Professor da Planilha",
+                "data_inicial": None,
+            })
 
     scraped_schedule = db.query(ScrapedSchedule).filter(ScrapedSchedule.student_id == student.id).all()
     schedule = [

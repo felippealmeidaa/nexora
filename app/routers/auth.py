@@ -4,7 +4,7 @@ Router de autenticacao.
 Endpoints para registro de usuarios, login, refresh e gerenciamento de sessoes.
 """
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -13,11 +13,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.coordinator import Coordinator
-from app.models.professor import Professor, ProfessorAcademicCourse
+from app.models.professor import Professor, ProfessorAcademicCourse, ProfessorCourse
 from app.models.staff_code import StaffRegistrationCode, StaffRole
 from app.models.student import ClassSchedule, Student
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
+from app.models.login_attempt import LoginAttempt
+from app.models.coordinator_course import CoordinatorCourse
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
@@ -227,6 +229,12 @@ def register_professor(data: ProfessorRegisterRequest, db: Session = Depends(get
             course_name=name,
         ))
 
+    for course_id in data.course_ids:
+        db.add(ProfessorCourse(
+            professor_id=professor.id,
+            course_id=course_id,
+        ))
+
     staff_code.is_used = True
     staff_code.used_by_user_id = user.id
 
@@ -266,11 +274,19 @@ def register_coordinator(data: CoordinatorRegisterRequest, db: Session = Depends
     db.add(user)
     db.flush()
 
-    db.add(Coordinator(
+    coordinator = Coordinator(
         user_id=user.id,
         phone=data.phone,
         academic_course_name=data.academic_course_name,
-    ))
+    )
+    db.add(coordinator)
+    db.flush()
+
+    for course_id in data.course_ids:
+        db.add(CoordinatorCourse(
+            coordinator_id=coordinator.id,
+            course_id=course_id,
+        ))
 
     staff_code.is_used = True
     staff_code.used_by_user_id = user.id
@@ -284,19 +300,53 @@ def register_coordinator(data: CoordinatorRegisterRequest, db: Session = Depends
 
 @router.post("/login", response_model=LoginResponse)
 def login(data: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
-    """Autentica usuario, cria sessao persistida e seta cookies de acesso e refresh."""
+    """Autentica usuario, cria sessao persistida e seta cookies de acesso e refresh com rate limit e lockout."""
     identifier = data.identifier.strip()
     password = data.password.strip()
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Verificar rate limit e lockout de login
+    fifteen_minutes_ago = datetime.utcnow() - timedelta(minutes=15)
+
+    failed_attempts_by_ip = db.query(LoginAttempt).filter(
+        LoginAttempt.ip_address == client_ip,
+        LoginAttempt.timestamp >= fifteen_minutes_ago,
+        LoginAttempt.is_successful == False
+    ).count()
+
+    failed_attempts_by_user = db.query(LoginAttempt).filter(
+        LoginAttempt.username == identifier,
+        LoginAttempt.timestamp >= fifteen_minutes_ago,
+        LoginAttempt.is_successful == False
+    ).count()
+
+    if failed_attempts_by_ip >= 5 or failed_attempts_by_user >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas de login incorretas. Sua conta ou IP foram temporariamente bloqueados. Tente novamente após 15 minutos."
+        )
 
     user = _resolve_user_for_login(identifier, db)
     if not user:
+        attempt = LoginAttempt(ip_address=client_ip, username=identifier, is_successful=False)
+        db.add(attempt)
+        db.commit()
         audit_logger.log_login(identifier, success=False)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Conta desativada")
+
     if not verify_password(password, user.hashed_password):
+        attempt = LoginAttempt(ip_address=client_ip, username=user.username, is_successful=False)
+        db.add(attempt)
+        db.commit()
         audit_logger.log_login(identifier, success=False)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+
+    # Registrar tentativa bem-sucedida
+    attempt = LoginAttempt(ip_address=client_ip, username=user.username, is_successful=True)
+    db.add(attempt)
 
     refresh_token = generate_refresh_token()
     session_identifier, access_jti = create_session_payload(user)

@@ -7,14 +7,14 @@ import time
 import unicodedata
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.coordinator import Coordinator
 from app.models.course import Course
 from app.models.enrollment import Enrollment
 from app.models.historical_data import HistoricalRecord
-from app.models.professor import Professor
+from app.models.professor import Professor, ProfessorCourse
 from app.models.scraped_data import ScrapedAttendance, ScrapedGrade, ScrapedSubject
 from app.models.student import Student, StudentStatus
 from app.models.user import User, UserRole
@@ -45,7 +45,14 @@ def _clamp(value: float, minimum: float, maximum: float) -> float:
 
 class HistoricalAnalysisService:
     _workspace_cache: dict[str, dict[str, Any]] = {}
-    _workspace_cache_ttl_seconds = 45
+    _workspace_cache_ttl_seconds = 86400
+    _professor_scope_cache: dict[int, dict[str, Any]] = {}
+    _professor_scope_cache_ttl_seconds = 3600
+
+    @classmethod
+    def clear_workspace_cache(cls):
+        cls._workspace_cache.clear()
+        cls._professor_scope_cache.clear()
 
     def __init__(self, db: Session):
         self.db = db
@@ -57,12 +64,14 @@ class HistoricalAnalysisService:
         semester: str | None = None,
         course_name: str | None = None,
         subject: str | None = None,
+        spreadsheet_id: int | None = None,
     ) -> dict[str, Any]:
         return self.get_workspace_bundle(
             current_user=current_user,
             semester=semester,
             course_name=course_name,
             subject=subject,
+            spreadsheet_id=spreadsheet_id,
         )["workspace"]
 
     def get_workspace_bundle(
@@ -71,8 +80,9 @@ class HistoricalAnalysisService:
         semester: str | None = None,
         course_name: str | None = None,
         subject: str | None = None,
+        spreadsheet_id: int | None = None,
     ) -> dict[str, Any]:
-        cache_key = self._build_workspace_cache_key(current_user, semester, course_name, subject)
+        cache_key = self._build_workspace_cache_key(current_user, semester, course_name, subject, spreadsheet_id)
         now = time.monotonic()
         cached = self._workspace_cache.get(cache_key)
         if cached and float(cached.get("expires_at") or 0.0) > now:
@@ -83,6 +93,7 @@ class HistoricalAnalysisService:
             semester=semester,
             course_name=course_name,
             subject=subject,
+            spreadsheet_id=spreadsheet_id,
         )
 
         prepared_records = self._prepare_records(records)
@@ -186,8 +197,49 @@ class HistoricalAnalysisService:
         semester: str | None = None,
         course_name: str | None = None,
         subject: str | None = None,
+        spreadsheet_id: int | None = None,
     ) -> tuple[list[HistoricalRecord], dict[str, Any]]:
-        all_records = self.db.query(HistoricalRecord).order_by(HistoricalRecord.id.desc()).all()
+        query = self.db.query(HistoricalRecord)
+        
+        # 1. Filtros de Escopo / Autorização
+        if current_user.role == UserRole.PROFESSOR:
+            query = query.filter(HistoricalRecord.professor_id == current_user.id)
+            if spreadsheet_id is None:
+                professor = self.db.query(Professor).filter(Professor.user_id == current_user.id).first()
+                if professor:
+                    academic_courses = [ac.course_name.strip() for ac in professor.academic_courses if ac.course_name and _normalize_text(ac.course_name) != "engenharia de software"]
+                    if academic_courses:
+                        query = query.filter(or_(*[HistoricalRecord.course_name.ilike(f"%{course}%") for course in academic_courses]))
+        elif current_user.role == UserRole.COORDINATOR:
+            coordinator = self.db.query(Coordinator).filter(Coordinator.user_id == current_user.id).first()
+            if coordinator and coordinator.academic_course_name:
+                query = query.filter(HistoricalRecord.course_name.ilike(f"%{coordinator.academic_course_name.strip()}%"))
+        
+        # 2. Otimização Crítica: Aplicar filtros estruturais diretamente na query do Banco
+        if spreadsheet_id is not None:
+            query = query.filter(HistoricalRecord.spreadsheet_id == spreadsheet_id)
+            
+        def clean_param(val: str | None) -> str | None:
+            if not val:
+                return None
+            val_str = str(val).strip()
+            if val_str.lower() in ("undefined", "null", "none", "", "all"):
+                return None
+            return val_str
+
+        semester_clean = clean_param(semester)
+        course_clean = clean_param(course_name)
+        subject_clean = clean_param(subject)
+
+        if semester_clean:
+            query = query.filter(HistoricalRecord.semester == semester_clean)
+        if course_clean:
+            query = query.filter(HistoricalRecord.course_name.ilike(f"%{course_clean}%"))
+        if subject_clean:
+            query = query.filter(HistoricalRecord.subject.ilike(f"%{subject_clean}%"))
+
+        all_records = query.order_by(HistoricalRecord.id.desc()).all()
+        
         scope = {
             "role": current_user.role.value.lower(),
             "label": "Leitura restrita",
@@ -198,23 +250,32 @@ class HistoricalAnalysisService:
         }
 
         if current_user.role == UserRole.PROFESSOR:
+            if spreadsheet_id is None:
+                professor = self.db.query(Professor).filter(Professor.user_id == current_user.id).first()
+                if professor:
+                    professor_courses = (
+                        self.db.query(Course.name)
+                        .join(ProfessorCourse, ProfessorCourse.course_id == Course.id)
+                        .filter(ProfessorCourse.professor_id == professor.id)
+                        .all()
+                    )
+                    prof_subject_names = [c[0].strip() for c in professor_courses if c[0] and "metodologia" not in _normalize_text(c[0])]
+                    if prof_subject_names:
+                        normalized_prof_subjects = {_normalize_text(name) for name in prof_subject_names if name}
+                        scoped = [
+                            record for record in all_records
+                            if _normalize_text(record.subject) in normalized_prof_subjects
+                        ]
+                    else:
+                        scoped = []
+                else:
+                    scoped = []
+            else:
+                scoped = all_records
             professor_scope = self._get_professor_scope(current_user)
-            academic_course_keys = professor_scope["academic_course_keys"]
-            subject_keys = professor_scope["subject_keys"]
-
-            scoped = []
-            for record in all_records:
-                if record.professor_id != current_user.id:
-                    continue
-                if academic_course_keys and not self._matches_any_scope(record.course_name, academic_course_keys, allow_contains=True):
-                    continue
-                if subject_keys and not self._matches_any_scope(record.subject, subject_keys, allow_contains=False):
-                    continue
-                scoped.append(record)
-
             scope.update({
                 "label": "Analises do professor",
-                "description": "Comparativos e riscos restritos aos seus cursos academicos e disciplinas vinculadas.",
+                "description": "Comparativos e riscos das suas planilhas e turmas integradas.",
                 "access_level": "classroom",
                 "course_name": professor_scope["academic_courses"],
                 "subject_names": professor_scope["subjects"],
@@ -249,15 +310,25 @@ class HistoricalAnalysisService:
         else:
             raise HTTPException(status_code=403, detail="Acesso nao autorizado.")
 
+        # Filtros opcionais defensivos adicionais
         filtered = self._apply_optional_filters(
             records=scoped,
             semester=semester,
             course_name=course_name,
             subject=subject,
         )
+        if spreadsheet_id is not None:
+            filtered = [r for r in filtered if r.spreadsheet_id == spreadsheet_id]
+            
         return filtered, scope
 
     def _get_professor_scope(self, current_user: User) -> dict[str, Any]:
+        # Verificar cache com TTL
+        now = time.monotonic()
+        cached = self._professor_scope_cache.get(current_user.id)
+        if cached and cached.get("expires_at", 0.0) > now:
+            return cached["data"]
+
         professor = self.db.query(Professor).filter(Professor.user_id == current_user.id).first()
         if not professor:
             raise HTTPException(status_code=404, detail="Perfil de professor nao encontrado.")
@@ -265,7 +336,7 @@ class HistoricalAnalysisService:
         academic_courses = [
             course_name.strip()
             for course_name in (ac.course_name for ac in professor.academic_courses)
-            if str(course_name or "").strip()
+            if str(course_name or "").strip() and _normalize_text(course_name) != "engenharia de software"
         ]
         academic_course_keys = {
             _normalize_text(name)
@@ -275,14 +346,21 @@ class HistoricalAnalysisService:
 
         subject_names: set[str] = set()
         if academic_course_keys:
-            student_rows = (
-                self.db.query(Student.id, Student.course_name)
-                .filter(
-                    Student.status == StudentStatus.ACTIVE,
-                    Student.course_name.isnot(None),
+            # Otimização Crítica: Filtrar alunos por curso usando OR e ILIKE diretamente no banco
+            # Evita carregar a tabela Student inteira na memória do servidor
+            filters = [Student.course_name.ilike(f"%{course}%") for course in academic_courses]
+            student_rows = []
+            if filters:
+                student_rows = (
+                    self.db.query(Student.id, Student.course_name)
+                    .filter(
+                        Student.status == StudentStatus.ACTIVE,
+                        Student.course_name.isnot(None),
+                        or_(*filters)
+                    )
+                    .all()
                 )
-                .all()
-            )
+            
             student_ids = [
                 student_id
                 for student_id, student_course_name in student_rows
@@ -313,12 +391,35 @@ class HistoricalAnalysisService:
                     if normalized_value:
                         subject_names.add(normalized_value)
 
-        return {
+        # Filtrar as disciplinas para manter apenas as que o professor está associado em ProfessorCourse
+        prof_courses = (
+            self.db.query(Course.name)
+            .join(ProfessorCourse, ProfessorCourse.course_id == Course.id)
+            .filter(ProfessorCourse.professor_id == professor.id)
+            .all()
+        )
+        allowed_subjects = {c[0].strip() for c in prof_courses if c[0] and "metodologia" not in _normalize_text(c[0])}
+        if allowed_subjects:
+            normalized_allowed = {_normalize_text(name) for name in allowed_subjects}
+            subject_names = {
+                name for name in subject_names
+                if _normalize_text(name) in normalized_allowed
+            }
+        else:
+            subject_names = set()
+
+        data = {
             "academic_courses": academic_courses,
             "subjects": sorted(subject_names),
             "academic_course_keys": academic_course_keys,
             "subject_keys": {_normalize_text(name) for name in subject_names if _normalize_text(name)},
         }
+
+        self._professor_scope_cache[current_user.id] = {
+            "expires_at": now + self._professor_scope_cache_ttl_seconds,
+            "data": data,
+        }
+        return data
     def _matches_any_scope(self, value: str | None, scope_keys: set[str], allow_contains: bool = True) -> bool:
         normalized_value = _normalize_text(value)
         if not normalized_value:
@@ -339,9 +440,21 @@ class HistoricalAnalysisService:
         course_name: str | None = None,
         subject: str | None = None,
     ) -> list[HistoricalRecord]:
-        semester_key = _normalize_text(semester)
-        course_key = _normalize_text(course_name)
-        subject_key = _normalize_text(subject)
+        def clean_param(val: str | None) -> str | None:
+            if not val:
+                return None
+            val_str = str(val).strip()
+            if val_str.lower() in ("undefined", "null", "none", "", "all"):
+                return None
+            return val_str
+
+        semester_clean = clean_param(semester)
+        course_clean = clean_param(course_name)
+        subject_clean = clean_param(subject)
+
+        semester_key = _normalize_text(semester_clean)
+        course_key = _normalize_text(course_clean)
+        subject_key = _normalize_text(subject_clean)
 
         filtered = records
         if semester_key:
@@ -351,6 +464,7 @@ class HistoricalAnalysisService:
         if subject_key:
             filtered = [record for record in filtered if subject_key in _normalize_text(record.subject)]
         return filtered
+
 
     def _build_filters(self, records: list[HistoricalRecord]) -> dict[str, list[str]]:
         semesters = sorted({record.semester for record in records if record.semester}, reverse=True)
@@ -368,6 +482,7 @@ class HistoricalAnalysisService:
         semester: str | None,
         course_name: str | None,
         subject: str | None,
+        spreadsheet_id: int | None = None,
     ) -> str:
         record_count, max_record_id = self.db.query(
             func.count(HistoricalRecord.id),
@@ -375,8 +490,14 @@ class HistoricalAnalysisService:
         ).one()
         professor_signature = ""
         if current_user.role == UserRole.PROFESSOR:
-            professor_scope = self._get_professor_scope(current_user)
-            professor_signature = ",".join(sorted(professor_scope["academic_course_keys"])) + "|" + ",".join(sorted(professor_scope["subject_keys"]))
+            # Otimização Crítica: Usar apenas a lista de cursos cadastrados no perfil do professor
+            # Evita executar queries pesadas de scraping em _get_professor_scope a cada cálculo de chave de cache
+            professor = self.db.query(Professor).filter(Professor.user_id == current_user.id).first()
+            if professor:
+                professor_signature = ",".join(sorted(ac.course_name for ac in professor.academic_courses if ac.course_name))
+        
+        spreadsheet_signature = str(spreadsheet_id or "")
+
         return "|".join([
             str(current_user.id),
             str(current_user.role.value),
@@ -386,6 +507,7 @@ class HistoricalAnalysisService:
             str(record_count or 0),
             str(max_record_id or 0),
             professor_signature,
+            spreadsheet_signature,
         ])
 
     def _build_available_analyses(self, role: UserRole) -> list[dict[str, str]]:
@@ -931,6 +1053,7 @@ class HistoricalAnalysisService:
             prepared.append({
                 "id": record.id,
                 "student_id": getattr(matched_student, "id", None),
+                "registration_number": getattr(matched_student, "registration_number", None),
                 "semester": record.semester or "Sem periodo",
                 "course_name": record.course_name or "Curso nao informado",
                 "subject": subject_label,
@@ -1176,6 +1299,43 @@ class HistoricalAnalysisService:
         student_names = {record["student_name"] for record in prepared_records if record["student_name"]}
         working_students = {record["student_name"] for record in prepared_records if record["is_working"]}
         critical_classes = [group for group in class_groups if group["risk_level"] in ("high", "critical")]
+        
+        # Agrupamento de alunos únicos por curso
+        students_by_course = defaultdict(set)
+        for record in prepared_records:
+            student = record.get("student_name")
+            course = record.get("course_name") or "Desconhecido"
+            if student and course:
+                students_by_course[course].add(student)
+        
+        course_distribution = {
+            course: len(students) for course, students in students_by_course.items()
+        }
+
+        # Calcular top_at_risk do histórico
+        student_records = {}
+        for row in prepared_records:
+            sid = row.get("student_id")
+            sname = row.get("student_name")
+            key = sid if sid else sname
+            if key not in student_records or row.get("risk_score", 0.0) > student_records[key].get("risk_score", 0.0):
+                student_records[key] = row
+
+        sorted_students = sorted(student_records.values(), key=lambda r: r.get("risk_score", 0.0), reverse=True)
+        top_at_risk = []
+        for r in sorted_students[:10]:
+            h = abs(hash(r.get("student_name"))) % 100000000
+            top_at_risk.append({
+                "student_id": r.get("student_id"),
+                "student_name": r.get("student_name"),
+                "registration_number": r.get("registration_number") or f"ALU-{h}",
+                "course_name": r.get("course_name"),
+                "gpa": r.get("grade_average"),
+                "attendance_rate": r.get("attendance"),
+                "risk_score": r.get("risk_score"),
+                "risk_level": r.get("risk_level"),
+            })
+
         return {
             "total_records": len(prepared_records),
             "total_students": len(student_names),
@@ -1187,8 +1347,11 @@ class HistoricalAnalysisService:
             "avg_activity": _safe_mean([record["activity_score"] for record in prepared_records]),
             "avg_risk": round(_safe_mean([record["risk_score"] for record in prepared_records]), 4),
             "critical_classes": len(critical_classes),
+            "course_distribution": course_distribution,
             "model_diagnostics": model_diagnostics or self.statistical_risk_service._fallback_context("Modelagem indisponivel."),
+            "top_at_risk": top_at_risk,
         }
+
 
     def _group_by_class(self, prepared_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1346,7 +1509,14 @@ class HistoricalAnalysisService:
             key=lambda item: (item["risk_score"], item["critical_students"], item["priority_index"]),
             reverse=True,
         )
-        return ranked[:8]
+        seen_labels = set()
+        unique_ranked = []
+        for item in ranked:
+            label = item.get("label")
+            if label and label not in seen_labels:
+                seen_labels.add(label)
+                unique_ranked.append(item)
+        return unique_ranked[:8]
 
     def _build_risk_topics(
         self,

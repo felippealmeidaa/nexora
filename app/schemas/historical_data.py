@@ -57,3 +57,4 @@ class HistoricalUploadResponse(BaseModel):
     normalization_steps: List[str] = Field(default_factory=list)
     summary: Optional[HistoricalUploadSummary] = None
     class_groups: List[HistoricalUploadClassGroup] = Field(default_factory=list)
+    spreadsheet_id: Optional[int] = None

@@ -2,6 +2,7 @@ import {
     Activity,
     BookOpen,
     BrainCircuit,
+    FileSpreadsheet,
     GraduationCap,
     LayoutDashboard,
     Lightbulb,
@@ -70,7 +71,8 @@ const NAV_BY_ROLE = {
     admin: [
         { icon: Activity, label: 'Dashboard pro-reitoria', description: 'Alertas criticos, turmas e alunos em risco', to: '/proreitor/dashboard' },
         { icon: BookOpen, label: 'Disciplinas acompanhadas', description: 'Componentes, turmas e alunos vinculados', to: '/proreitor/courses' },
-        { icon: ScrollText, label: 'Subir planilhas', description: 'Upload, normalizacao e leitura historica', to: '/proreitor/historical-data' },
+        { icon: ScrollText, label: 'Subir planilhas', description: 'Upload, normalizacao e processamento por IA', to: '/proreitor/historical-upload' },
+        { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Lista de arquivos e analises com IA integradas', to: '/proreitor/historical-data' },
         { icon: BrainCircuit, label: 'Analises academicas', description: 'Cinco recortes para leitura profunda', to: '/proreitor/analysis-center' },
         { icon: UserCircle2, label: 'Meu perfil', description: 'Dados, cursos e configuracoes da pro-reitoria', to: '/proreitor/profile' },
     ],
@@ -91,7 +93,8 @@ const NAV_BY_ROLE = {
     professor: [
         { icon: Activity, label: 'Dashboard docente', description: 'Alertas criticos, turmas e alunos em risco', to: '/professor/dashboard' },
         { icon: BookOpen, label: 'Disciplinas matriculadas', description: 'Componentes, turmas e alunos vinculados', to: '/professor/courses' },
-        { icon: ScrollText, label: 'Subir planilhas', description: 'Upload, normalizacao e leitura historica', to: '/professor/historical-data' },
+        { icon: ScrollText, label: 'Subir planilhas', description: 'Upload, normalizacao e processamento por IA', to: '/professor/historical-upload' },
+        { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Lista de arquivos e analises com IA integradas', to: '/professor/historical-data' },
         { icon: BrainCircuit, label: 'Analises academicas', description: 'Cinco recortes para leitura profunda', to: '/professor/analysis-center' },
         { icon: UserCircle2, label: 'Meu perfil', description: 'Dados docentes e cursos vinculados', to: '/professor/profile' },
     ],

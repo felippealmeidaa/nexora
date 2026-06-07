@@ -34,7 +34,6 @@ ACADEMIC_COURSE_FALLBACK = [
     "Educacao Fisica",
     "Enfermagem",
     "Engenharia Civil",
-    "Engenharia de Software",
     "Engenharia Eletrica",
     "Engenharia Mecanica",
     "Estetica e Cosmetica",
@@ -55,7 +54,6 @@ CATALOG_FALLBACK_RULES = [
         "matches": {
             "inteligencia artificial",
             "analise e desenvolvimento de sistemas",
-            "engenharia de software",
             "design grafico",
         },
         "departments": {"Computacao", "Matematica"},
@@ -157,8 +155,7 @@ def list_subjects_by_academic_courses(
     names: str = Query(...),
     db: Session = Depends(get_db),
 ):
-    """Retorna disciplinas ligadas aos cursos academicos informados."""
-
+    """Retorna disciplinas ligadas aos cursos academicos informados, filtrando apenas por web scraping."""
     academic_names = unique_texts([name for name in names.split(",") if name.strip()])
     if not academic_names:
         return []
@@ -166,7 +163,6 @@ def list_subjects_by_academic_courses(
     result = []
     seen_ids = set()
     seen_names = set()
-    normalized_academic_names = {normalize_text(name) for name in academic_names}
 
     from app.models.scraped_data import ScrapedSubject, ScrapedGrade, ScrapedAttendance
 
@@ -180,7 +176,10 @@ def list_subjects_by_academic_courses(
         rows = (
             db.query(column)
             .join(Student, Student.id == scraped_model.student_id)
-            .filter(Student.course_name.in_(academic_names))
+            .filter(
+                Student.course_name.in_(academic_names),
+                Student.last_sync_at.isnot(None)
+            )
             .distinct()
             .all()
         )
@@ -188,6 +187,9 @@ def list_subjects_by_academic_courses(
             if name:
                 cleaned_name = clean_subject_name(name)
                 if cleaned_name:
+                    normalized_cleaned = normalize_text(cleaned_name)
+                    if "metodologia" in normalized_cleaned or "trabalho cientifico" in normalized_cleaned:
+                        continue
                     scraped_names.add(cleaned_name)
 
     catalog_courses = db.query(Course).all()
@@ -214,24 +216,6 @@ def list_subjects_by_academic_courses(
                 "code": "",
                 "department": None,
             })
-
-    enrolled_courses = (
-        db.query(Course)
-        .join(Enrollment, Enrollment.course_id == Course.id)
-        .join(Student, Student.id == Enrollment.student_id)
-        .filter(Student.course_name.in_(academic_names))
-        .distinct()
-        .all()
-    )
-    for course in enrolled_courses:
-        normalized_name = normalize_text(course.name)
-        if course.id not in seen_ids and normalized_name not in seen_names:
-            seen_ids.add(course.id)
-            seen_names.add(normalized_name)
-            result.append(serialize_course(course))
-
-    if not result:
-        result.extend(infer_catalog_courses(db, academic_names))
 
     result.sort(key=lambda item: normalize_text(item["name"]))
     return result
@@ -326,7 +310,3 @@ def delete_course(
     db.delete(course)
     db.commit()
     audit_logger.log_data_change(current_user.username, "Course", "DELETE", course_id)
-
-
-
-

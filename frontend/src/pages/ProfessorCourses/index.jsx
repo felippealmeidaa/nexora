@@ -23,11 +23,15 @@ function normalizeText(value) {
 function dedupeSubjects(subjects) {
     const unique = new Map();
     for (const subject of subjects || []) {
-        const key = subject?.id ? `id:${subject.id}` : `name:${normalizeText(subject?.name)}`;
+        const key = subject?.id ? `id:${subject.id}` : `name:${normalizeText(subject?.name || subject?.code)}`;
         if (!key || unique.has(key)) continue;
         unique.set(key, subject);
     }
-    return Array.from(unique.values()).sort((left, right) => left.name.localeCompare(right.name));
+    return Array.from(unique.values()).sort((left, right) => {
+        const leftName = String(left?.name || left?.code || '');
+        const rightName = String(right?.name || right?.code || '');
+        return leftName.localeCompare(rightName);
+    });
 }
 
 export function ProfessorCourses() {
@@ -172,12 +176,10 @@ export function ProfessorCourses() {
 
         for (const courseId of selectedCourseIds) {
             const live = availableById.get(courseId);
-            const saved = selectedCourseDetailsById.get(courseId);
+            if (!live) continue;
             const stats = statsByCourseKey.get(`id:${courseId}`);
-            const base = live || saved;
-            if (!base) continue;
             merged.push({
-                ...base,
+                ...live,
                 academic_course_name: stats?.academic_course_name || selectedAcademicCourse,
                 student_count: stats?.student_count || 0,
                 periods: stats?.periods || [],
@@ -185,7 +187,7 @@ export function ProfessorCourses() {
         }
 
         return merged.sort((left, right) => left.name.localeCompare(right.name));
-    }, [availableSubjects, selectedAcademicCourse, selectedCourseDetailsById, selectedCourseIds, statsByCourseKey]);
+    }, [availableSubjects, selectedAcademicCourse, selectedCourseIds, statsByCourseKey]);
 
     const totalSelectedStudents = selectedSubjects.reduce((sum, subject) => sum + (subject.student_count || 0), 0);
     const totalAvailableSubjects = visibleSubjects.length;
@@ -244,12 +246,6 @@ export function ProfessorCourses() {
 
     return (
         <div className="space-y-6">
-            <PageHeader
-                title="Disciplinas matriculadas"
-                subtitle="Os cursos salvos no seu perfil aparecem aqui. Depois, voce seleciona apenas as disciplinas que realmente leciona dentro daquele curso."
-                icon={BookOpen}
-            />
-
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard title="Cursos salvos" value={academicCourseOptions.length} helper="Cursos academicos persistidos no seu perfil" icon={GraduationCap} tone="indigo" />
                 <MetricCard title="Disciplinas do curso" value={totalAvailableSubjects} helper="Elegiveis no curso selecionado" icon={BookOpen} tone="purple" />
@@ -261,7 +257,7 @@ export function ProfessorCourses() {
                 <Card>
                     <CardHeader
                         title="1. Escolha um curso do seu perfil"
-                        subtitle="Os cursos abaixo ja foram salvos no seu cadastro. Agora voce escolhe um deles para marcar apenas as disciplinas que leciona."
+                        subtitle="Os cursos salvos no seu perfil aparecem aqui. Selecione um curso abaixo para marcar e salvar apenas as disciplinas que vocÃª realmente leciona."
                         icon={GraduationCap}
                     />
 
@@ -276,11 +272,11 @@ export function ProfessorCourses() {
                                             type="button"
                                             onClick={() => handleAcademicCourseSelect(course.name)}
                                             className={`rounded-[22px] border px-4 py-3 text-left transition ${isActive
-                                                ? 'border-accent-blue/35 bg-accent-blue/10 shadow-sm'
-                                                : 'border-border-subtle bg-white hover:border-border-hover hover:bg-bg-secondary/50'}`}
+                                                ? 'border-accent-blue/35 bg-accent-blue/10 dark:bg-accent-blue/20 shadow-sm'
+                                                : 'border-border-subtle dark:border-slate-800 bg-bg-card hover:border-border-hover hover:bg-bg-secondary/50'}`}
                                         >
                                             <p className="text-sm font-semibold text-text-primary">{course.name}</p>
-                                            <p className="mt-1 text-sm text-text-secondary">{course.selectedSubjects} disciplinas ja selecionadas • {course.students} alunos cobertos</p>
+                                            <p className="mt-1 text-sm text-text-secondary">{course.selectedSubjects} disciplinas ja selecionadas â€¢ {course.students} alunos cobertos</p>
                                         </button>
                                     );
                                 })}
@@ -298,14 +294,14 @@ export function ProfessorCourses() {
                                             value={search}
                                             onChange={(event) => setSearch(event.target.value)}
                                             placeholder="Buscar disciplina..."
-                                            className="h-11 w-full rounded-2xl border border-border-subtle bg-white pl-10 pr-4 text-sm text-text-primary outline-none transition focus:border-accent-blue/40"
+                                            className="h-11 w-full rounded-2xl border border-border-subtle dark:border-slate-800 bg-bg-card pl-10 pr-4 text-sm text-text-primary outline-none transition focus:border-accent-blue/40"
                                         />
                                     </div>
                                 </div>
 
                                 <div className="mt-5 space-y-3">
                                     {subjectsLoading ? (
-                                        <div className="flex min-h-[180px] items-center justify-center rounded-[22px] border border-dashed border-border-subtle bg-white/70">
+                                        <div className="flex min-h-[180px] items-center justify-center rounded-[22px] border border-dashed border-border-subtle dark:border-slate-800 bg-bg-card/70">
                                             <Loader2 className="h-6 w-6 animate-spin text-accent-blue" />
                                         </div>
                                     ) : visibleSubjects.length > 0 ? visibleSubjects.map((course) => {
@@ -317,12 +313,12 @@ export function ProfessorCourses() {
                                                 onClick={() => course.id && toggleCourse(course.id)}
                                                 disabled={!course.id}
                                                 className={`flex w-full items-center justify-between rounded-[22px] border px-4 py-4 text-left transition ${isChecked
-                                                    ? 'border-accent-purple/35 bg-accent-purple/10'
-                                                    : 'border-border-subtle bg-white hover:border-border-hover hover:bg-bg-secondary/40'} ${!course.id ? 'cursor-not-allowed opacity-60' : ''}`}
+                                                    ? 'border-accent-purple/35 bg-accent-purple/10 dark:bg-accent-purple/20'
+                                                    : 'border-border-subtle dark:border-slate-800 bg-bg-card hover:border-border-hover hover:bg-bg-secondary/40'} ${!course.id ? 'cursor-not-allowed opacity-60' : ''}`}
                                             >
                                                 <div>
                                                     <p className="text-sm font-semibold text-text-primary">{course.name}</p>
-                                                    <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} • {course.student_count || 0} alunos vinculados no momento</p>
+                                                    <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} â€¢ {course.student_count || 0} alunos vinculados no momento</p>
                                                     <div className="mt-2 flex flex-wrap gap-2">
                                                         {course.periods?.length ? course.periods.map((period) => (
                                                             <Badge key={`${course.name}-${period}`} variant="neutral">{period}o periodo</Badge>
@@ -386,11 +382,11 @@ export function ProfessorCourses() {
                         {selectedSubjects.length > 0 ? (
                             <div className="space-y-3">
                                 {selectedSubjects.map((course) => (
-                                    <div key={`selected-${course.id}`} className="rounded-[22px] border border-border-subtle bg-white px-4 py-4">
+                                    <div key={`selected-${course.id}`} className="rounded-[22px] border border-border-subtle dark:border-slate-800 bg-bg-card px-4 py-4">
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
                                                 <p className="text-sm font-semibold text-text-primary">{course.name}</p>
-                                                <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} • {course.academic_course_name || selectedAcademicCourse || 'Curso salvo no perfil'}</p>
+                                                <p className="mt-1 text-sm text-text-secondary">{course.code || 'Sem codigo institucional'} â€¢ {course.academic_course_name || selectedAcademicCourse || 'Curso salvo no perfil'}</p>
                                             </div>
                                             <Badge variant="info">{course.student_count || 0} alunos</Badge>
                                         </div>

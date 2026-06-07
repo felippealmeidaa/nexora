@@ -268,7 +268,7 @@ export function StudentDashboard() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard title="Disciplinas" value={grades?.total_disciplinas || 0} icon={BookOpen} tone="blue" helper="Componentes acompanhados no periodo" />
                 <MetricCard title="Media geral" value={Number(gpa || 0).toFixed(1)} icon={TrendingUp} tone="emerald" helper="Desempenho consolidado do semestre" />
-                <MetricCard title="Frequencia" value={`${Number(attendanceRate || 0).toFixed(0)}%`} icon={Calendar} tone="amber" helper="Presenca media nas disciplinas" />
+                <MetricCard title={"Frequ\u00eancia"} value={`${Number(attendanceRate || 0).toFixed(0)}%`} icon={Calendar} tone="amber" helper="Presen\u00e7a m\u00e9dia nas disciplinas" />
                 <MetricCard title="Risco academico" value={risk.shortLabel} icon={risk.icon} tone={risk.metricTone} helper="Classificacao atual da jornada" />
             </div>
 
@@ -434,7 +434,7 @@ export function StudentDashboard() {
             </Card>
 
             <Card>
-                <CardHeader title="Frequencia por disciplina" subtitle="Presenca acumulada e faltas registradas no periodo" icon={Calendar} />
+                <CardHeader title={"Frequ\u00eancia por disciplina"} subtitle="Presen\u00e7a acumulada e faltas registradas no per\u00edodo" icon={Calendar} />
                 {attendance?.attendance?.length > 0 ? (
                     <div className="space-y-3">
                         {attendance.attendance.map((item, index) => (
@@ -644,7 +644,7 @@ function formatAttendanceSummary(item) {
         return `${totalClasses} aulas registradas no portal`;
     }
 
-    return 'Presenca sincronizada do portal academico';
+    return 'Presen\u00e7a sincronizada do portal acad\u00e9mico';
 }
 
 function getGradeColor(value) {

@@ -14,6 +14,7 @@ class CoordinatorRegisterRequest(BaseModel):
     email: str = Field(..., max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
     academic_course_name: str = Field(..., min_length=2, max_length=200)
+    course_ids: List[int] = Field(default=[])
 
     @field_validator('registration_code')
     @classmethod

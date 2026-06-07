@@ -73,32 +73,63 @@ class StatisticalRiskService:
         if class_counts.min() < 2:
             return prepared_records, self._fallback_context("A base atual nao tem variacao suficiente entre risco baixo e alto.")
 
+        # Amostragem inteligente (downsampling) para o treinamento se o volume for muito grande
+        # Evita lentidão/timeout na requisição HTTP mantendo consistência estatística
+        MAX_TRAIN_SAMPLES = 5000
+        is_sampled = len(frame) > MAX_TRAIN_SAMPLES
+        
+        if is_sampled:
+            # Amostragem estratificada manual robusta (independente de versão do Pandas)
+            class0 = frame[frame["target"] == 0]
+            class1 = frame[frame["target"] == 1]
+            n_samples_per_class = MAX_TRAIN_SAMPLES // 2
+            
+            sample0 = class0.sample(n=min(len(class0), n_samples_per_class), random_state=42)
+            sample1 = class1.sample(n=min(len(class1), n_samples_per_class), random_state=42)
+            
+            train_frame = pd.concat([sample0, sample1]).sample(frac=1, random_state=42)
+            if len(train_frame) < 100:
+                train_frame = frame.sample(n=MAX_TRAIN_SAMPLES, random_state=42, replace=True)
+        else:
+            train_frame = frame
+
+        target_train = train_frame["target"].astype(int).to_numpy()
+        class_counts_train = np.bincount(target_train, minlength=2)
+        
+        if class_counts_train.min() < 2:
+            train_frame = frame
+            target_train = target
+            is_sampled = False
+
         feature_columns = [column for column in frame.columns if column not in {"record_id", "target"}]
-        processed, minmax_values, preprocessing_summary = self._preprocess_features(frame[feature_columns])
-        if processed.empty:
+        
+        # Preprocessamento com base de treino
+        processed_train, minmax_values, preprocessing_summary = self._preprocess_features(train_frame[feature_columns])
+        if processed_train.empty:
             return prepared_records, self._fallback_context("Nao foi possivel preprocessar as variaveis de risco.")
 
-        folds = max(2, min(5, int(class_counts.min())))
+        folds = max(2, min(5, int(class_counts_train.min())))
         splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
 
         scaler = StandardScaler()
-        scaled = scaler.fit_transform(processed.to_numpy())
+        scaled_train = scaler.fit_transform(processed_train.to_numpy())
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             selector = SelectKBest(score_func=f_classif, k=min(max(8, len(feature_columns) // 2), len(feature_columns)))
-            selector.fit(scaled, target)
+            selector.fit(scaled_train, target_train)
 
         selected_mask = selector.get_support()
         if not selected_mask.any():
             selected_mask = np.ones(len(feature_columns), dtype=bool)
         selected_columns = [feature_columns[index] for index, keep in enumerate(selected_mask) if keep]
-        scaled_selected = scaled[:, selected_mask]
+        scaled_selected_train = scaled_train[:, selected_mask]
 
         anova_scores = selector.scores_ if selector.scores_ is not None else np.zeros(len(feature_columns))
         anova_importance = self._normalize_vector(anova_scores[selected_mask])
 
-        models, diagnostics = self._fit_models(scaled_selected, target, selected_columns, splitter)
+        # Treina os modelos rápidos na amostra de treino
+        models, diagnostics = self._fit_models(scaled_selected_train, target_train, selected_columns, splitter)
         if not models:
             return prepared_records, self._fallback_context("Os modelos estatisticos nao convergiram; mantido fallback heuristico.")
 
@@ -106,7 +137,16 @@ class StatisticalRiskService:
         factor_importance = self._collapse_factor_importance(combined_feature_importance)
         selected_feature_names = [self._feature_label(name) for name in selected_columns]
 
-        selected_norm = processed[selected_columns].copy()
+        # --- PREDIÇÃO/INFERÊNCIA GLOBAL VETORIZADA ---
+        # Preprocessar a base COMPLETA para fazer a inferência global
+        full_processed, _, _ = self._preprocess_features(frame[feature_columns])
+        
+        # Aplicar o mesmo Standard Scaler treinado nos dados de treino
+        full_scaled = scaler.transform(full_processed.to_numpy())
+        full_scaled_selected = full_scaled[:, selected_mask]
+
+        # Normalizar a base completa usando os minmax do treino para consistência analítica
+        selected_norm = full_processed[selected_columns].copy()
         for column in selected_columns:
             minimum, maximum = minmax_values.get(column, (0.0, 1.0))
             series = selected_norm[column]
@@ -115,7 +155,9 @@ class StatisticalRiskService:
             else:
                 selected_norm[column] = ((series - minimum) / (maximum - minimum)).clip(0.0, 1.0)
 
-        blended_probabilities = self._blend_probabilities(models, scaled_selected)
+        # Predição para todos os registros de forma instantânea e ponderada
+        blended_probabilities = self._blend_probabilities(models, full_scaled_selected)
+        
         updated_records = self._apply_scores_to_records(
             prepared_records=prepared_records,
             record_ids=frame["record_id"].tolist(),

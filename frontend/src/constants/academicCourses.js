@@ -11,7 +11,6 @@ export const ACADEMIC_COURSE_FALLBACK = [
     'Educacao Fisica',
     'Enfermagem',
     'Engenharia Civil',
-    'Engenharia de Software',
     'Engenharia Eletrica',
     'Engenharia Mecanica',
     'Estetica e Cosmetica',

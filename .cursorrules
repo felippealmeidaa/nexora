@@ -1,0 +1,40 @@
+# 🎯 Diretrizes do Agente Antigravity (Regras de Desenvolvimento do Projeto)
+
+Sempre que você (Antigravity) iniciar uma tarefa neste projeto ou em qualquer outro projeto do usuário, você **DEVE** seguir rigorosamente as regras de gerenciamento de conhecimento e documentação abaixo. Estas são diretrizes de comportamento universais de longo prazo estabelecidas pelo usuário.
+
+---
+
+## 🧠 1. Princípio da Documentação Ativa e Acumulativa
+
+Para qualquer tecnologia, padrão de design, algoritmo complexo ou integração que você implementar neste projeto, você deve aplicar as seguintes ações:
+
+1.  **Consultar a Base de Conhecimento:** 
+    *   Verifique na raiz do projeto se existe uma pasta dedicada a aprendizados (como `.somado_com_ia/` ou `conhecimento/`) ou no diretório central de conhecimentos do Obsidian do usuário (`C:\Conheciemento\Aprendizado Software\somado com IA`).
+    *   Analise as notas existentes antes de iniciar qualquer código para garantir consistência com o que já foi aprendido e estruturado.
+
+2.  **Atualizar Notas Existentes:**
+    *   Se a tecnologia que você está implementando já possuir uma nota técnica correspondente, revise-a.
+    *   Caso você descubra um método mais eficiente, novos parâmetros, trate um bug específico da biblioteca ou crie uma abordagem melhor, adicione esses novos conhecimentos à nota imediatamente, tornando o documento cada vez mais rico e detalhado.
+
+3.  **Criar Novas Notas Técnicas:**
+    *   Se você utilizar uma tecnologia ou técnica que ainda não está mapeada (ex: um banco de dados específico, uma API externa, uma técnica de caching, etc.), crie um novo arquivo Markdown explicando:
+        *   **O que é** e qual problema ela resolve.
+        *   **Como usar** da melhor maneira (Melhores Práticas).
+        *   **Template de Código** comentado e pronto para reuso.
+        *   **Armadilhas Comuns** e como evitá-las.
+
+---
+
+## 🎨 2. Padrão Estético e Estrutural das Notas
+
+Toda nota técnica criada por você deve seguir um padrão visual de excelência (Premium Design):
+*   **Hierarquia Limpa:** Use títulos bem divididos, negritos e listas estruturadas.
+*   **Diagramas Visuais:** Sempre que possível, ilustre os fluxos de dados ou arquiteturas usando diagramas **Mermaid** compatíveis com o Obsidian.
+*   **Tabelas Comparativas:** Use tabelas para comparar opções de bibliotecas ou abordagens.
+*   **Caixas de Destaque:** Utilize alertas no estilo GitHub (`> [!NOTE]`, `> [!IMPORTANT]`, etc.) para destacar pontos críticos ou armadilhas.
+
+---
+
+## 💼 3. Regras Específicas de Linguagem e Resposta
+*   **Idioma:** Todas as respostas, notas de conhecimento, planos de implementação e explicações ao usuário **devem** ser redigidas em **Português do Brasil** (`RULE[user_global]`).
+*   **Tom de Comunicação:** Mantenha um tom altamente profissional, técnico, preciso e humilde, evitando termos superlativos (ex: "perfeito", "sem falhas").

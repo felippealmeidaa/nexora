@@ -6,6 +6,26 @@
 
 :root {
     color-scheme: light;
+    
+    /* Semantic variables mapped to Tailwind configuration */
+    --bg-primary: #F6F8FC;
+    --bg-secondary: #EEF4FF;
+    --bg-tertiary: #E6EEFF;
+    --bg-elevated: #F8FAFF;
+    --bg-card: #FFFFFF;
+    --bg-card-hover: #F8FBFF;
+    
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-tertiary: #64748B;
+    --text-inverse: #F8FAFC;
+    
+    --border-subtle: #E2E8F0;
+    --border-hover: #CBD5E1;
+    --border-strong: #B6C3DA;
+    --border-glow: rgba(106, 27, 255, 0.18);
+
+    /* Nexora UI tokens */
     --nexora-primary-dark: #003B8F;
     --nexora-primary: #0B57D0;
     --nexora-purple: #6A1BFF;
@@ -17,6 +37,41 @@
     --nexora-border: #E2E8F0;
     --nexora-shadow: 0 24px 60px -34px rgba(15, 23, 42, 0.18);
     --nexora-brand-gradient: linear-gradient(135deg, #003B8F 0%, #6A1BFF 100%);
+}
+
+.dark {
+    color-scheme: dark;
+    
+    /* Semantic variables for dark theme */
+    --bg-primary: #080C17; /* Fundo escuro azul profundo premium */
+    --bg-secondary: #111827;
+    --bg-tertiary: #1F2937;
+    --bg-elevated: #0B0F19;
+    --bg-card: #0D1321; /* Cards um tom ligeiramente mais claro */
+    --bg-card-hover: #151D30;
+    
+    --text-primary: #F3F4F6;
+    --text-secondary: #9CA3AF;
+    --text-tertiary: #6B7280;
+    --text-inverse: #111827;
+    
+    --border-subtle: #1F2937;
+    --border-hover: #374151;
+    --border-strong: #4B5563;
+    --border-glow: rgba(106, 27, 255, 0.35);
+
+    /* Nexora UI tokens for dark theme */
+    --nexora-primary-dark: #3B82F6;
+    --nexora-primary: #60A5FA;
+    --nexora-purple: #A78BFA;
+    --nexora-purple-soft: #C084FC;
+    --nexora-bg: #080C17;
+    --nexora-card: #0D1321;
+    --nexora-text: #F3F4F6;
+    --nexora-text-secondary: #9CA3AF;
+    --nexora-border: #1F2937;
+    --nexora-shadow: 0 24px 60px -34px rgba(0, 0, 0, 0.6);
+    --nexora-brand-gradient: linear-gradient(135deg, #1E40AF 0%, #7C3AED 100%);
 }
 
 @layer base {
@@ -160,3 +215,215 @@
         @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold tracking-wide;
     }
 }
+
+/* ─── Dark Mode Specific Overrides & Resets ─── */
+.dark body {
+    background-image:
+        radial-gradient(circle at top left, rgba(11, 87, 208, 0.16), transparent 30%),
+        radial-gradient(circle at top right, rgba(106, 27, 255, 0.14), transparent 28%),
+        linear-gradient(180deg, rgba(8, 12, 23, 0.96), rgba(8, 12, 23, 0.6) 32%) !important;
+}
+
+/* Transições globais de cor */
+body, header, aside, main, div, button, nav, a, p, h1, h2, h3, h4, span, input, select {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 180ms;
+}
+
+/* Sobrescrever classes utilitárias comuns do Tailwind para preservar o Modo Escuro */
+.dark .bg-white,
+.dark .bg-white\/96,
+.dark .bg-white\/92,
+.dark .bg-white\/90,
+.dark .bg-white\/76,
+.dark .bg-white\/72 {
+    background-color: var(--bg-card) !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-200\/80,
+.dark .border-slate-200\/70,
+.dark .border-border-subtle {
+    border-color: var(--border-subtle) !important;
+}
+
+.dark .bg-slate-50,
+.dark .bg-slate-100 {
+    background-color: var(--bg-primary) !important;
+}
+
+.dark .bg-slate-200,
+.dark .bg-slate-200\/55,
+.dark .bg-slate-300 {
+    background-color: var(--bg-tertiary) !important;
+}
+
+.dark .border-slate-300,
+.dark .border-slate-300\/60 {
+    border-color: var(--border-subtle) !important;
+}
+
+.dark .text-slate-950,
+.dark .text-slate-900 {
+    color: var(--text-primary) !important;
+}
+
+.dark .text-slate-700,
+.dark .text-slate-600 {
+    color: var(--text-secondary) !important;
+}
+
+.dark .text-slate-500 {
+    color: var(--text-tertiary) !important;
+}
+
+.dark .hover\/bg-slate-50:hover,
+.dark .hover\:bg-slate-50:hover {
+    background-color: var(--bg-card-hover) !important;
+}
+
+/* Overrides para opacidades de bg-white e border-white no modo escuro */
+.dark .bg-white\/96,
+.dark .bg-white\/95,
+.dark .bg-white\/92,
+.dark .bg-white\/90,
+.dark .bg-white\/80,
+.dark .bg-white\/78,
+.dark .bg-white\/76,
+.dark .bg-white\/75,
+.dark .bg-white\/72,
+.dark .bg-white\/70,
+.dark .bg-white\/60,
+.dark .bg-white\/40,
+.dark .bg-white\/30,
+.dark .bg-white\/20 {
+    background-color: rgba(13, 19, 33, 0.82) !important;
+}
+
+.dark .border-white\/80,
+.dark .border-white\/70,
+.dark .border-white\/60,
+.dark .border-white\/50,
+.dark .border-white\/40,
+.dark .border-white\/30,
+.dark .border-white\/20 {
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Overrides de hover para opacidades de bg-white no modo escuro */
+.dark .hover\:bg-white\/50:hover,
+.dark .hover\/bg-white\/50:hover,
+.dark .hover\:bg-white\/10:hover,
+.dark .hover\/bg-white\/10:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Corrigir cores de texto que ficam ilegíveis no modo escuro */
+.dark .text-indigo-900 {
+    color: #C7D2FE !important; /* indigo-200 */
+}
+.dark .text-amber-900 {
+    color: #FDE68A !important; /* amber-200 */
+}
+.dark .text-emerald-900 {
+    color: #A7F3D0 !important; /* emerald-200 */
+}
+.dark .text-rose-900 {
+    color: #FECACA !important; /* rose-200 */
+}
+.dark .text-red-900 {
+    color: #FCA5A5 !important; /* red-300 */
+}
+
+/* Reset específico para cards glassmorphic em modo escuro */
+.dark .glass-card {
+    background-color: rgba(13, 19, 33, 0.82) !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark .glass-card:hover {
+    background-color: rgba(21, 29, 48, 0.92) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark .glass-card-static {
+    background-color: rgba(13, 19, 33, 0.85) !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark .brand-shell {
+    background:
+        linear-gradient(180deg, rgba(13, 19, 33, 0.95), rgba(9, 13, 26, 0.8)),
+        radial-gradient(circle at top right, rgba(11, 87, 208, 0.2), transparent 36%) !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark .table-shell {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-subtle) !important;
+}
+
+/* Ajustes no calendário e widgets do header */
+.dark header .border-border-subtle,
+.dark header .bg-white {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-subtle) !important;
+}
+
+/* Ajustes de scrollbar no modo escuro */
+.dark *,
+.dark *::before,
+.dark *::after {
+    scrollbar-color: rgba(106, 27, 255, 0.4) transparent !important;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+    background: rgba(106, 27, 255, 0.3) !important;
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+    background: rgba(106, 27, 255, 0.5) !important;
+}
+
+/* Override para o container de hero card (bg-brand-gradient-soft) em modo escuro */
+.dark .bg-brand-gradient-soft {
+    background-image: linear-gradient(135deg, rgba(30, 58, 138, 0.08) 0%, rgba(109, 40, 217, 0.06) 100%) !important;
+    background-color: var(--bg-card) !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ─── Correções de Opacidade de Variáveis CSS do Tailwind (Claro e Escuro) ─── */
+.bg-bg-secondary\/10 { background-color: rgba(238, 244, 255, 0.1) !important; }
+.bg-bg-secondary\/20 { background-color: rgba(238, 244, 255, 0.2) !important; }
+.bg-bg-secondary\/25 { background-color: rgba(238, 244, 255, 0.25) !important; }
+.bg-bg-secondary\/35 { background-color: rgba(238, 244, 255, 0.35) !important; }
+.bg-bg-secondary\/40 { background-color: rgba(238, 244, 255, 0.4) !important; }
+.bg-bg-secondary\/45 { background-color: rgba(238, 244, 255, 0.45) !important; }
+.bg-bg-secondary\/50 { background-color: rgba(238, 244, 255, 0.5) !important; }
+.bg-bg-secondary\/55 { background-color: rgba(238, 244, 255, 0.55) !important; }
+.bg-bg-secondary\/80 { background-color: rgba(238, 244, 255, 0.8) !important; }
+
+.bg-bg-primary\/75 { background-color: rgba(246, 248, 252, 0.75) !important; }
+.bg-bg-primary\/95 { background-color: rgba(246, 248, 252, 0.95) !important; }
+
+.bg-bg-card\/70 { background-color: rgba(255, 255, 255, 0.7) !important; }
+.bg-bg-card\/92 { background-color: rgba(255, 255, 255, 0.92) !important; }
+
+/* Overrides no modo escuro */
+.dark .bg-bg-secondary\/10 { background-color: rgba(17, 24, 39, 0.1) !important; }
+.dark .bg-bg-secondary\/20 { background-color: rgba(17, 24, 39, 0.2) !important; }
+.dark .bg-bg-secondary\/25 { background-color: rgba(17, 24, 39, 0.25) !important; }
+.dark .bg-bg-secondary\/35 { background-color: rgba(17, 24, 39, 0.35) !important; }
+.dark .bg-bg-secondary\/40 { background-color: rgba(17, 24, 39, 0.4) !important; }
+.dark .bg-bg-secondary\/45 { background-color: rgba(17, 24, 39, 0.45) !important; }
+.dark .bg-bg-secondary\/50 { background-color: rgba(17, 24, 39, 0.5) !important; }
+.dark .bg-bg-secondary\/55 { background-color: rgba(17, 24, 39, 0.55) !important; }
+.dark .bg-bg-secondary\/80 { background-color: rgba(17, 24, 39, 0.8) !important; }
+
+.dark .bg-bg-primary\/75 { background-color: rgba(8, 12, 23, 0.75) !important; }
+.dark .bg-bg-primary\/95 { background-color: rgba(8, 12, 23, 0.95) !important; }
+
+.dark .bg-bg-card\/70 { background-color: rgba(13, 19, 33, 0.7) !important; }
+.dark .bg-bg-card\/92 { background-color: rgba(13, 19, 33, 0.92) !important; }
+

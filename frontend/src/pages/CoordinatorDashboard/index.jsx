@@ -4,13 +4,16 @@ import {
     AlertTriangle,
     BarChart3,
     BookOpen,
+    BrainCircuit,
     GraduationCap,
+    Loader2,
     Shield,
     TrendingUp,
     Users,
 } from 'lucide-react';
 import api from '@/services/api';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { MetricCard } from '@/components/ui/MetricCard';
@@ -30,6 +33,22 @@ export function CoordinatorDashboard() {
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedStudentId, setSelectedStudentId] = useState(null);
+
+    // Estados Técnicos de Insights de IA
+    const [aiInsights, setAiInsights] = useState(null);
+    const [aiLoading, setAiLoading] = useState(false);
+
+    const handleGenerateInsights = async () => {
+        setAiLoading(true);
+        try {
+            const res = await api.get('/analytics/coordinator/ai-insights');
+            setAiInsights(res.data.insights);
+        } catch (err) {
+            console.error('Erro ao gerar insights de IA', err);
+        } finally {
+            setAiLoading(false);
+        }
+    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -71,9 +90,9 @@ export function CoordinatorDashboard() {
                     ? `Visao academica consolidada do curso ${profile.academic_course_name}, com leitura de desempenho, risco e disciplinas prioritarias.`
                     : 'Visao academica consolidada do curso, com leitura de desempenho, risco e disciplinas prioritarias.'}
                 icon={Shield}
-                actions={profile?.academic_course_name ? (
+                actions={profile?.academic_course_name && (
                     <Badge variant="purple">{profile.academic_course_name}</Badge>
-                ) : null}
+                )}
             />
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -82,6 +101,19 @@ export function CoordinatorDashboard() {
                 <MetricCard title="Disciplinas monitoradas" value={loading ? '...' : kpis.total_subjects || 0} icon={BookOpen} tone="amber" helper="Oferta academica acompanhada" />
                 <MetricCard title="Casos em risco" value={loading ? '...' : kpis.at_risk_count || 0} icon={AlertTriangle} tone="rose" helper="Alunos com prioridade de intervencao" />
             </div>
+
+            {aiInsights && (
+                <Card>
+                    <CardHeader
+                        title="Diretrizes e Insights da IA (Gemini)"
+                        subtitle="Planos de intervenção acadêmica e sugestões pedagógicas para as disciplinas críticas"
+                        icon={BrainCircuit}
+                    />
+                    <div className="p-6 border-t border-border-subtle bg-bg-secondary/10">
+                        <MarkdownRenderer text={aiInsights} />
+                    </div>
+                </Card>
+            )}
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.9fr_1.1fr]">
                 <Card>
@@ -237,9 +269,46 @@ function ProgressLine({ label, value, tone }) {
 
 function InlineMetric({ label, value }) {
     return (
-        <div className="rounded-2xl bg-white px-3 py-2">
+        <div className="rounded-2xl bg-bg-secondary border border-border-subtle/50 px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary">{label}</p>
             <p className="mt-1 text-sm font-semibold text-text-primary">{value}</p>
         </div>
+    );
+}
+
+function MarkdownRenderer({ text }) {
+    if (!text) return null;
+    
+    const lines = text.split('\n');
+    return (
+        <div className="space-y-3">
+            {lines.map((line, idx) => {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('###')) {
+                    return <h4 key={idx} className="text-base font-bold text-text-primary mt-4">{trimmed.replace('###', '').trim()}</h4>;
+                }
+                if (trimmed.startsWith('##')) {
+                    return <h3 key={idx} className="text-lg font-bold text-text-primary mt-6">{trimmed.replace('##', '').trim()}</h3>;
+                }
+                if (trimmed.startsWith('#')) {
+                    return <h2 key={idx} className="text-xl font-bold text-text-primary mt-6 border-b pb-2">{trimmed.replace('#', '').trim()}</h2>;
+                }
+                if (trimmed.startsWith('*') || trimmed.startsWith('-')) {
+                    const cleanText = trimmed.substring(1).trim();
+                    return <li key={idx} className="ml-5 list-disc text-sm text-text-secondary">{parseBold(cleanText)}</li>;
+                }
+                if (trimmed) {
+                    return <p key={idx} className="text-sm leading-6 text-text-secondary">{parseBold(trimmed)}</p>;
+                }
+                return <div key={idx} className="h-2" />;
+            })}
+        </div>
+    );
+}
+
+function parseBold(text) {
+    const parts = text.split('**');
+    return parts.map((part, index) => 
+        index % 2 === 1 ? <strong key={index} className="font-semibold text-text-primary">{part}</strong> : part
     );
 }

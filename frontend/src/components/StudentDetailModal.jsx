@@ -336,7 +336,7 @@ function GradesTab({ grades }) {
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-text-primary">{grade.disciplina}</p>
-                            <p className="mt-1 text-sm text-text-secondary">Avaliacao consolidada da disciplina</p>
+                            <p className="mt-1 text-sm text-text-secondary">Avalia\u00e7\u00e3o consolidada da disciplina</p>
                         </div>
                         <Badge variant={grade.situacao === 'Aprovado' ? 'success' : grade.situacao === 'Reprovado' ? 'danger' : 'warning'}>
                             {grade.situacao || 'Em andamento'}
@@ -368,7 +368,7 @@ function formatAttendanceSummary(item) {
         return `${totalClasses} aulas registradas no portal`;
     }
 
-    return 'Presenca sincronizada do portal academico';
+    return 'Presen\u00e7a sincronizada do portal acad\u00e9mico';
 }
 
 function AttendanceTab({ attendance }) {

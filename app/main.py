@@ -49,8 +49,8 @@ from app.security.secrets import encrypt_secret, is_encrypted_secret
 
 logger = logging.getLogger(__name__)
 
-DEMO_ACADEMIC_COURSE = "Inteligência Artificial"
 DEMO_SEMESTER = "2025.1"
+DEMO_ACADEMIC_COURSE = "Inteligência Artificial"
 DEMO_COURSES = [
     {"name": "Programação I", "code": "CMP101", "credits": 4, "semester": DEMO_SEMESTER, "department": "Computação"},
     {"name": "Banco de Dados", "code": "CMP301", "credits": 4, "semester": DEMO_SEMESTER, "department": "Computação"},
@@ -363,7 +363,6 @@ def ensure_demo_historical_data(db, professor_user):
         "Programacao II",
         "Banco de Dados",
         "Redes de Computadores",
-        "Eng. de Software",
         "Calculo I",
         "Estatistica",
         "Inteligencia Artificial",
@@ -373,7 +372,6 @@ def ensure_demo_historical_data(db, professor_user):
         "Programacao II": -0.65,
         "Banco de Dados": 0.8,
         "Redes de Computadores": -0.2,
-        "Eng. de Software": 0.55,
         "Calculo I": -1.15,
         "Estatistica": -0.35,
         "Inteligencia Artificial": 1.0,
@@ -476,9 +474,11 @@ def ensure_demo_historical_data(db, professor_user):
                 else:
                     situation = "Em risco"
 
+                record_course = DEMO_ACADEMIC_COURSE
+
                 db.add(HistoricalRecord(
                     semester=semester,
-                    course_name=DEMO_ACADEMIC_COURSE,
+                    course_name=record_course,
                     subject=subject_name,
                     period=person["period"],
                     student_name=person["name"],
@@ -620,6 +620,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
 
 app.include_router(auth.router)
 app.include_router(students.router)

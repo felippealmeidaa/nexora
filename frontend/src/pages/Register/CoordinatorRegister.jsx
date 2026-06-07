@@ -28,6 +28,8 @@ export function CoordinatorRegister() {
     const [courseSearch, setCourseSearch] = useState('');
     const [showCourseDropdown, setShowCourseDropdown] = useState(false);
     const [availableAcademicCourses, setAvailableAcademicCourses] = useState([]);
+    const [availableCourses, setAvailableCourses] = useState([]);
+    const [selectedCourseIds, setSelectedCourseIds] = useState([]);
 
     const [form, setForm] = useState({
         registration_code: '',
@@ -42,6 +44,22 @@ export function CoordinatorRegister() {
     useEffect(() => {
         fetchAcademicCourses(api).then(setAvailableAcademicCourses);
     }, []);
+
+    useEffect(() => {
+        if (form.academic_course_name) {
+            api.get(`/courses/by-academic-courses?names=${encodeURIComponent(form.academic_course_name)}`)
+                .then(res => {
+                    setAvailableCourses(res.data || []);
+                    setSelectedCourseIds([]);
+                })
+                .catch(err => {
+                    console.error("Erro ao buscar disciplinas:", err);
+                });
+        } else {
+            setAvailableCourses([]);
+            setSelectedCourseIds([]);
+        }
+    }, [form.academic_course_name]);
 
     const updateField = (field, value) => {
         setForm((previous) => ({ ...previous, [field]: value }));
@@ -90,6 +108,7 @@ export function CoordinatorRegister() {
                 email: form.email.trim().toLowerCase(),
                 phone: form.phone || null,
                 academic_course_name: form.academic_course_name,
+                course_ids: selectedCourseIds,
             });
             setSuccess(true);
         } catch (err) {
@@ -262,6 +281,49 @@ export function CoordinatorRegister() {
                             </motion.div>
                         ) : null}
                     </div>
+
+                    {form.academic_course_name && availableCourses.length > 0 ? (
+                        <motion.div 
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="rounded-2xl border border-border-subtle bg-slate-50/50 p-4 space-y-2.5"
+                        >
+                            <label className="block text-sm font-semibold text-text-secondary">
+                                Selecione as disciplinas que você ministra (opcional)
+                            </label>
+                            <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto sm:grid-cols-2 pr-1">
+                                {availableCourses.map((course) => {
+                                    const isChecked = selectedCourseIds.includes(course.id);
+                                    return (
+                                        <label
+                                            key={course.id || course.name}
+                                            className={`flex items-center gap-2.5 rounded-xl border p-2.5 cursor-pointer transition-all ${
+                                                isChecked
+                                                    ? 'border-warning/30 bg-warning/5 text-warning font-semibold animate-pulse-subtle'
+                                                    : 'border-border-subtle bg-white/40 hover:bg-slate-100/50 text-text-secondary'
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={() => {
+                                                    if (isChecked) {
+                                                        setSelectedCourseIds(prev => prev.filter(id => id !== course.id));
+                                                    } else {
+                                                        if (course.id) {
+                                                            setSelectedCourseIds(prev => [...prev, course.id]);
+                                                        }
+                                                    }
+                                                }}
+                                                className="rounded border-border-subtle text-warning focus:ring-warning"
+                                            />
+                                            <span className="text-xs">{course.name}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </motion.div>
+                    ) : null}
 
                     <div className="flex items-center justify-between gap-3 pt-2">
                         <AuthBackButton onClick={() => navigate('/register')} label="Voltar" />
