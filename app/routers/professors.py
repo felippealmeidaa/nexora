@@ -478,21 +478,15 @@ def get_my_overview(
     pass_info = service.stats.compute_pass_rate(all_grades) if all_grades else {"pass_rate": 0.0}
 
     risk_summary = {"low": 0, "medium": 0, "high": 0, "critical": 0}
-    for gpa, attendance in zip(gpas, attendance_rates):
-        if gpa < 4.0 or attendance < 60.0:
-            risk_summary["critical"] += 1
-        elif gpa < 5.0 or attendance < 70.0:
-            risk_summary["high"] += 1
-        elif gpa < 6.0 or attendance < 80.0:
-            risk_summary["medium"] += 1
-        else:
-            risk_summary["low"] += 1
+    for sid, gpa, attendance in zip(active_ids, gpas, attendance_rates):
+        _, risk_level = service._get_student_risk(sid, gpa, attendance)
+        risk_summary[risk_level] += 1
 
     student_risks = []
     for student in active_students:
         gpa = service._get_scraped_gpa(student.id)
         attendance = service._get_student_attendance_rate(student.id)
-        risk_score = max(0.0, min(1.0, (1 - gpa / 10) * 0.6 + (1 - attendance / 100) * 0.4))
+        risk_score, risk_level = service._get_student_risk(student.id, gpa, attendance)
         student_risks.append({
             "student_id": student.id,
             "student_name": student.name,
@@ -501,7 +495,7 @@ def get_my_overview(
             "gpa": _round(gpa, 2),
             "attendance_rate": _round(attendance, 2),
             "risk_score": _round(risk_score, 4),
-            "risk_level": service._classify_risk(risk_score),
+            "risk_level": risk_level,
         })
     student_risks.sort(key=lambda item: item["risk_score"], reverse=True)
 

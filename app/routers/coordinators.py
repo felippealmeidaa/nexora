@@ -256,22 +256,16 @@ def get_my_overview(
 
     # Risk summary
     risk_summary = {"low": 0, "medium": 0, "high": 0, "critical": 0}
-    for gpa, att in zip(gpas, attendance_rates):
-        if gpa < 4.0 or att < 60.0:
-            risk_summary["critical"] += 1
-        elif gpa < 5.0 or att < 70.0:
-            risk_summary["high"] += 1
-        elif gpa < 6.0 or att < 80.0:
-            risk_summary["medium"] += 1
-        else:
-            risk_summary["low"] += 1
+    for sid, gpa, att in zip(active_ids, gpas, attendance_rates):
+        _, risk_level = service._get_student_risk(sid, gpa, att)
+        risk_summary[risk_level] += 1
 
     # Top at risk
     student_risks = []
     for s in students:
         gpa = service._get_scraped_gpa(s.id)
         att = service._get_student_attendance_rate(s.id)
-        risk_score = max(0.0, min(1.0, (1 - gpa / 10) * 0.6 + (1 - att / 100) * 0.4))
+        risk_score, risk_level = service._get_student_risk(s.id, gpa, att)
         student_risks.append({
             "student_id": s.id,
             "student_name": s.name,
@@ -280,7 +274,7 @@ def get_my_overview(
             "gpa": _round(gpa, 2),
             "attendance_rate": _round(att, 2),
             "risk_score": _round(risk_score, 4),
-            "risk_level": service._classify_risk(risk_score),
+            "risk_level": risk_level,
         })
     student_risks.sort(key=lambda x: x["risk_score"], reverse=True)
 

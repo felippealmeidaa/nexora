@@ -72,12 +72,8 @@ export function StudentDetailModal({ studentId, isOpen, onClose }) {
 
     const headerStats = {
         subjects: grades.length || subjects.length || 0,
-        avgGrade: grades.length
-            ? (grades.reduce((sum, item) => sum + Number(item.media || 0), 0) / grades.length).toFixed(1)
-            : Number(kpis.gpa || 0).toFixed(1),
-        avgAttendance: attendance.length
-            ? `${(attendance.reduce((sum, item) => sum + Number(item.percentual_presenca || 0), 0) / attendance.length).toFixed(0)}%`
-            : `${Number(kpis.attendance_rate || 0).toFixed(0)}%`,
+        avgGrade: Number(kpis.gpa || 0).toFixed(1),
+        avgAttendance: `${Number(kpis.attendance_rate || 0).toFixed(0)}%`,
         riskScore: `${Math.round(Number(kpis.risk_score || 0) * 100)}%`,
     };
 
