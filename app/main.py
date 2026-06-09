@@ -32,6 +32,8 @@ from app.models.scraped_data import (
     ScrapedSubject,
 )
 from app.models.historical_data import HistoricalRecord  # noqa: F401
+from app.models.login_attempt import LoginAttempt  # noqa: F401
+from app.models.historical_spreadsheet import HistoricalSpreadsheet  # noqa: F401
 from app.utils.attendance import normalize_attendance_record, normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
 from app.routers import (
     analytics,
@@ -598,6 +600,20 @@ async def lifespan(app: FastAPI):
             ensure_demo_credentials(db)
 
         migrate_legacy_sensitive_data(db)
+
+        # Limpeza automática de tentativas de login antigas (>24h)
+        # Mantém a tabela lean e as consultas de rate limit eficientes
+        try:
+            cutoff = datetime.utcnow() - timedelta(hours=24)
+            deleted_attempts = db.query(LoginAttempt).filter(
+                LoginAttempt.timestamp < cutoff
+            ).delete(synchronize_session=False)
+            if deleted_attempts > 0:
+                db.commit()
+                logger.info("Startup cleanup: %s login_attempts antigas removidas.", deleted_attempts)
+        except Exception as cleanup_err:
+            logger.warning("Erro ao limpar login_attempts antigas: %s", cleanup_err)
+
         if settings.ENABLE_STARTUP_DATA_REPAIR:
             repair_scraped_attendance_data(db)
     finally:

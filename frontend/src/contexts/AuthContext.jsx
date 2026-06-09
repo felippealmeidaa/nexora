@@ -39,9 +39,21 @@ export const AuthProvider = ({ children }) => {
             return { success: true };
         } catch (error) {
             console.error('Login error:', error);
+            const status = error.response?.status;
             const detail = error.response?.data?.detail;
+
+            // Tratamento específico de rate limit (HTTP 429)
+            if (status === 429) {
+                return {
+                    success: false,
+                    rateLimited: true,
+                    message: detail || 'Muitas tentativas de login. Aguarde 15 minutos antes de tentar novamente.',
+                };
+            }
+
             return {
                 success: false,
+                rateLimited: false,
                 message: detail || (error.request
                     ? 'Não foi possível conectar ao backend. Verifique se a API está rodando em http://127.0.0.1:8000.'
                     : 'Erro ao realizar login'),

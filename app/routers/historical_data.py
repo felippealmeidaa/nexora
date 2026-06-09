@@ -29,31 +29,47 @@ from app.services.gemini_service import gemini_service
 from app.services.historical_analysis_service import HistoricalAnalysisService
 from app.services.historical_export_service import ANALYSIS_TITLES, HistoricalExportService
 
+# Imports dos módulos do pacote historical
+from app.historical.utils import (
+    _normalize_text,
+    _clean_val,
+    _coerce_float,
+    _coerce_grade,
+    _coerce_attendance,
+    _coerce_period,
+    HEADER_KEYWORDS,
+)
+from app.historical.parser import (
+    _require_pandas,
+    _prepare_dataframe,
+    _parse_csv,
+    _parse_text_table,
+    _extract_text_from_pdf,
+    _parse_pdf_via_regex_fallback,
+)
+from app.historical.mapper import (
+    _map_dataframe_to_records,
+    _merge_duplicate_records,
+    _build_upload_class_groups,
+    _record_key,
+)
+from app.historical.serializer import (
+    _extract_status_label,
+    _extract_numeric_grade_summary,
+    _serialize_historical_record,
+)
+from app.historical.sync import (
+    _sync_historical_to_main_db,
+    _cleanup_main_db_for_spreadsheet,
+)
+from app.historical.spreadsheet_ops import (
+    _recalculate_spreadsheet_stats,
+    _generate_fallback_ai_analysis_markdown,
+)
+
 router = APIRouter(prefix="/api/historical-data", tags=["Dados Historicos"])
 logger = logging.getLogger(__name__)
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".xls", ".xlsx", ".txt", ".pdf"}
-
-HEADER_KEYWORDS = {
-    "aluno", "nome", "matricula", "ra", "curso", "disciplina", "materia",
-    "semestre", "ano", "periodo", "serie", "nota", "media", "frequencia",
-    "presenca", "faltas", "situacao", "status", "resultado", "turma",
-}
-
-
-def _require_pandas():
-    try:
-        import pandas as pd  # type: ignore
-        return pd
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="O processamento de planilhas historicas esta indisponivel neste ambiente.",
-        ) from exc
-
-
-def _normalize_text(value: Any) -> str:
-    text = str(value or "")
-    return re.sub(r"\s+", " ", text).strip().lower()
 
 
 def _validate_upload(filename: str, content: bytes) -> str:
@@ -75,891 +91,6 @@ def _validate_upload(filename: str, content: bytes) -> str:
         )
 
     return extension
-
-
-import math
-
-
-def _clean_val(val):
-    pd = _require_pandas()
-    if pd.isna(val):
-        return None
-    if isinstance(val, float) and math.isnan(val):
-        return None
-    try:
-        if isinstance(val, float) and val == int(val):
-            return str(int(val))
-    except (ValueError, OverflowError):
-        pass
-    return str(val).strip()
-
-
-def _coerce_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        val_float = float(value)
-        if math.isnan(val_float) or math.isinf(val_float):
-            return None
-        return val_float
-    text = str(value).strip().replace("%", "").replace(",", ".")
-    match = re.search(r"-?\d+(?:\.\d+)?", text)
-    if not match:
-        return None
-    try:
-        val_float = float(match.group())
-        if math.isnan(val_float) or math.isinf(val_float):
-            return None
-        return val_float
-    except ValueError:
-        return None
-
-
-def _coerce_grade(value: Any) -> float | None:
-    numeric = _coerce_float(value)
-    if numeric is None:
-        return None
-    if numeric > 10:
-        numeric = numeric / 10 if numeric <= 100 else 10.0
-    return round(max(0.0, min(float(numeric), 10.0)), 2)
-
-
-def _coerce_attendance(value: Any) -> float | None:
-    numeric = _coerce_float(value)
-    if numeric is None:
-        return None
-    if 0 <= numeric <= 1:
-        numeric *= 100
-    return round(max(0.0, min(float(numeric), 100.0)), 2)
-
-
-def _coerce_period(value: Any) -> int | None:
-    numeric = _coerce_float(value)
-    if numeric is None:
-        return None
-    try:
-        period = int(numeric)
-        return period if 0 < period <= 20 else None
-    except (ValueError, OverflowError):
-        return None
-
-
-def _header_score(values: list[Any]) -> int:
-    score = 0
-    for value in values:
-        normalized = _normalize_text(value)
-        if not normalized or normalized.startswith("unnamed") or normalized.startswith("column"):
-            continue
-        if any(keyword in normalized for keyword in HEADER_KEYWORDS):
-            score += 2
-        elif re.search(r"^(va|n|nota|media|freq|presenca|faltas)\b", normalized):
-            score += 1
-    return score
-
-
-def _make_unique_headers(values: list[Any]) -> list[str]:
-    headers: list[str] = []
-    counts: dict[str, int] = {}
-    for index, value in enumerate(values, start=1):
-        cleaned = str(value or "").strip() or f"COLUNA_{index}"
-        if cleaned.lower().startswith("unnamed"):
-            cleaned = f"COLUNA_{index}"
-        counts[cleaned] = counts.get(cleaned, 0) + 1
-        if counts[cleaned] > 1:
-            cleaned = f"{cleaned}_{counts[cleaned]}"
-        headers.append(cleaned)
-    return headers
-
-
-def _prepare_dataframe(df: Any) -> Any:
-    if df is None:
-        return None
-
-    prepared = df.copy()
-    prepared = prepared.dropna(axis=0, how="all").dropna(axis=1, how="all")
-    if prepared.empty:
-        return prepared
-
-    prepared.columns = _make_unique_headers([_clean_val(column) for column in prepared.columns])
-    current_score = _header_score(list(prepared.columns))
-    promoted_index = None
-    promoted_score = current_score
-
-    for row_index in range(min(3, len(prepared.index))):
-        candidate_headers = [_clean_val(value) for value in prepared.iloc[row_index].tolist()]
-        score = _header_score(candidate_headers)
-        if score >= 4 and score > promoted_score:
-            promoted_index = row_index
-            promoted_score = score
-
-    if promoted_index is not None:
-        prepared.columns = _make_unique_headers([_clean_val(value) for value in prepared.iloc[promoted_index].tolist()])
-        prepared = prepared.iloc[promoted_index + 1 :].reset_index(drop=True)
-
-    prepared = prepared.dropna(axis=0, how="all").dropna(axis=1, how="all")
-    prepared.columns = _make_unique_headers([_clean_val(column) for column in prepared.columns])
-    return prepared.reset_index(drop=True)
-
-
-def _find_column(cols_upper: dict[str, str], exact_names: list[str]) -> str | None:
-    for orig_col, upper_col in cols_upper.items():
-        if upper_col in exact_names:
-            return orig_col
-    return None
-
-
-def _find_column_startswith(cols_upper: dict[str, str], prefixes: list[str]) -> str | None:
-    for orig_col, upper_col in cols_upper.items():
-        if any(upper_col.startswith(prefix) for prefix in prefixes):
-            return orig_col
-    return None
-
-
-def _build_semester(row: Any, col_map: dict[str, str]) -> str:
-    pd = _require_pandas()
-    if "semester_full" in col_map:
-        raw_value = row.get(col_map["semester_full"], "")
-        if pd.notna(raw_value):
-            text = str(raw_value).strip()
-            match = re.search(r"(20\d{2})\D*([12])", text)
-            if match:
-                return f"{match.group(1)}-{match.group(2)}"
-            return text or "Desconhecido"
-
-    year_value = _clean_val(row.get(col_map.get("semester_year"), "")) if "semester_year" in col_map else None
-    semester_value = _clean_val(row.get(col_map.get("semester_num"), "")) if "semester_num" in col_map else None
-    if year_value and semester_value:
-        if year_value in semester_value:
-            return semester_value
-        return f"{year_value}-{semester_value}"
-    if year_value:
-        return year_value
-    if semester_value:
-        return semester_value
-    return "Desconhecido"
-
-
-def _extract_grade_columns(cols_upper: dict[str, str], reserved_columns: set[str]) -> list[str]:
-    grade_columns = []
-    for orig_col, upper_col in cols_upper.items():
-        if orig_col in reserved_columns:
-            continue
-        if re.match(r"^(VA|N|NOTA|P|NP|AP)\d", upper_col):
-            grade_columns.append(orig_col)
-            continue
-        if any(keyword in upper_col for keyword in ["MEDIA", "NOTA_FINAL", "NF", "AVALIACAO"]):
-            grade_columns.append(orig_col)
-    return grade_columns
-
-
-def _map_dataframe_to_records(df: Any, source_label: str | None = None) -> list[dict[str, Any]]:
-    pd = _require_pandas()
-    prepared = _prepare_dataframe(df)
-    if prepared is None or prepared.empty:
-        return []
-
-    cols_upper = {column: _normalize_text(column).upper().replace(" ", "_") for column in prepared.columns}
-    col_map: dict[str, str] = {}
-
-    mapping_rules = [
-        ("student_name", ["NOME_ALUNO", "NOME", "ALUNO", "STUDENT"]),
-        ("student_id", ["ID_ALUNO", "MATRICULA", "RA", "COD_ALUNO", "CODIGO_ALUNO"]),
-        ("course_name", ["NOME_CURSO", "CURSO", "CURSO_ALUNO"]),
-        ("course_code", ["COD_CURSO", "CODIGO_CURSO"]),
-        ("subject", ["NOME_DISCIPLINA", "NOME_DISICPLINA", "NOME_DISICIPLINA", "DISCIPLINA", "MATERIA", "COMPONENTE_CURRICULAR"]),
-        ("subject_code", ["COD_DISCIPLINA", "CODIGO_DISCIPLINA"]),
-        ("semester_year", ["ANO"]),
-        ("semester_num", ["SEMESTRE"]),
-        ("semester_full", ["SEM_LETIVO", "SEMESTRE_LETIVO", "PERIODO_LETIVO"]),
-        ("period", ["SERIE", "PERIODO"]),
-        ("situation", ["SITUACAO", "STATUS", "RESULTADO"]),
-        ("grade", ["NOTA", "MEDIA", "NOTA_FINAL", "MEDIA_FINAL"]),
-        ("attendance", ["FREQUENCIA", "FREQ", "PRESENCA", "PERCENTUAL_PRESENCA"]),
-        ("absences", ["FALTAS", "TOTAL_FALTAS"]),
-    ]
-
-    for field, exact_names in mapping_rules:
-        found = _find_column(cols_upper, exact_names)
-        if found:
-            col_map[field] = found
-
-    startswith_rules = [
-        ("course_name", ["NOME_CURS", "CURSO"]),
-        ("subject", ["NOME_DISC", "NOME_DISI", "DISCIPLI", "MATERIA"]),
-        ("situation", ["SITUAC"]),
-        ("attendance", ["FREQUEN", "PRESENC"]),
-    ]
-    for field, prefixes in startswith_rules:
-        if field not in col_map:
-            found = _find_column_startswith(cols_upper, prefixes)
-            if found:
-                col_map[field] = found
-
-    grade_columns = _extract_grade_columns(cols_upper, set(col_map.values()))
-
-    records = []
-    rows_dict = prepared.to_dict(orient="records")
-    for row in rows_dict:
-        semester = _build_semester(row, col_map)
-        student_name = _clean_val(row.get(col_map["student_name"], "")) if "student_name" in col_map else None
-        student_code = _clean_val(row.get(col_map["student_id"], "")) if "student_id" in col_map else None
-        if not student_name and student_code:
-            student_name = f"Aluno {student_code}"
-
-        course_name = _clean_val(row.get(col_map["course_name"], "")) if "course_name" in col_map else None
-        if not course_name and "course_code" in col_map:
-            course_name = _clean_val(row.get(col_map["course_code"], ""))
-
-        subject = _clean_val(row.get(col_map["subject"], "")) if "subject" in col_map else None
-        if not subject and "subject_code" in col_map:
-            subject = _clean_val(row.get(col_map["subject_code"], ""))
-        if not subject and source_label:
-            subject = source_label
-
-        period = _coerce_period(row.get(col_map["period"], None)) if "period" in col_map else None
-        attendance = _coerce_attendance(row.get(col_map["attendance"], None)) if "attendance" in col_map else None
-        if attendance is None and "absences" in col_map:
-            absences = _coerce_float(row.get(col_map["absences"], None))
-            if absences is not None:
-                attendance = round(max(0.0, 100.0 - absences), 2)
-
-        grades: dict[str, Any] = {}
-        if "situation" in col_map:
-            situation = _clean_val(row.get(col_map["situation"], None))
-            if situation:
-                grades["SITUACAO"] = situation
-        if "grade" in col_map:
-            grade_value = row.get(col_map["grade"], None)
-            numeric_grade = _coerce_grade(grade_value)
-            grades["Nota"] = numeric_grade if numeric_grade is not None else _clean_val(grade_value)
-        for grade_column in grade_columns:
-            grade_value = row.get(grade_column, None)
-            if pd.notna(grade_value):
-                label = str(grade_column).strip()
-                numeric_grade = _coerce_grade(grade_value)
-                grades[label] = numeric_grade if numeric_grade is not None else _clean_val(grade_value)
-
-        # Filtrar disciplinas ou alunos fantasmas de cabeçalhos repetidos ou nulos
-        if not subject or str(subject).strip().lower() in {"", "nan", "none", "null", "undefined"}:
-            continue
-        if not student_name or str(student_name).strip().lower() in {"", "nan", "none", "null", "undefined", "n/a"}:
-            continue
-            
-        subj_norm = _normalize_text(subject).upper()
-        if subj_norm in {"DISCIPLINA", "MATERIA", "NOME_DISCIPLINA", "NOME_DE_DISCIPLINA", "COMPONENTE_CURRICULAR", "DISCIPLINAS", "SUBJECT"}:
-            continue
-            
-        student_norm = _normalize_text(student_name).upper()
-        if student_norm in {"NOME", "ALUNO", "NOME_ALUNO", "STUDENT", "NOME_DO_ALUNO", "NOME_COMPLETO"}:
-            continue
-
-        if not any([student_name, course_name, subject, grades, attendance is not None]):
-            continue
-
-        records.append({
-            "semester": semester or "Desconhecido",
-            "course_name": course_name or "Desconhecido",
-            "subject": subject,
-            "period": period,
-            "student_name": student_name or "N/A",
-            "student_code": student_code,
-            "grades": grades,
-            "attendance": attendance,
-        })
-
-    return records
-
-
-def _parse_csv(content: bytes) -> Any:
-    pd = _require_pandas()
-    best_df = None
-    best_score = (-1, -1)
-    best_sep = ";"
-    best_encoding = "utf-8"
-
-    for sep in [";", ",", "\t", "|"]:
-        for encoding in ["utf-8-sig", "utf-8", "cp1252", "latin-1"]:
-            try:
-                candidate = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, on_bad_lines="skip", nrows=100)
-                prepared = _prepare_dataframe(candidate)
-                if prepared is None or prepared.empty:
-                    continue
-                score = (_header_score(list(prepared.columns)), len(prepared.columns))
-                if score > best_score:
-                    best_score = score
-                    best_sep = sep
-                    best_encoding = encoding
-            except Exception:
-                continue
-
-    try:
-        candidate = pd.read_csv(io.BytesIO(content), sep=best_sep, encoding=best_encoding, on_bad_lines="skip")
-        best_df = _prepare_dataframe(candidate)
-    except Exception:
-        try:
-            candidate = pd.read_csv(io.BytesIO(content), sep=None, engine="python", on_bad_lines="skip")
-            best_df = _prepare_dataframe(candidate)
-        except Exception:
-            return None
-
-    return best_df
-
-
-def _clean_table_text_by_separator(text: str, sep: str) -> str:
-    lines = text.splitlines()
-    counts = [line.count(sep) for line in lines]
-    valid_counts = [c for c in counts if c > 0]
-    if not valid_counts:
-        return text
-        
-    most_common = Counter(valid_counts).most_common(1)
-    if not most_common:
-        return text
-        
-    predominant_count = most_common[0][0]
-    if predominant_count < 2:
-        return text
-        
-    filtered_lines = [line for line in lines if line.count(sep) == predominant_count]
-    return "\n".join(filtered_lines)
-
-
-def _parse_text_table(spreadsheet_text: str) -> Any:
-    pd = _require_pandas()
-    if not spreadsheet_text.strip():
-        return None
-
-    for sep in [";", "|", "\t", ","]:
-        try:
-            cleaned_text = _clean_table_text_by_separator(spreadsheet_text, sep)
-            candidate = pd.read_csv(io.StringIO(cleaned_text), sep=sep, engine="python", on_bad_lines="skip")
-            prepared = _prepare_dataframe(candidate)
-            if prepared is not None and not prepared.empty and len(prepared.columns) >= 3:
-                return prepared
-        except Exception:
-            continue
-
-    return None
-
-
-def _parse_pdf_via_regex_fallback(spreadsheet_text: str) -> list[dict[str, Any]]:
-    records = []
-    lines = [line.strip() for line in spreadsheet_text.splitlines() if line.strip()]
-    
-    global_semester = None
-    global_course = None
-    global_subject = None
-    
-    semester_match = re.search(r"\b(20\d{2})[-./]?([12])\b", spreadsheet_text)
-    if semester_match:
-        global_semester = f"{semester_match.group(1)}-{semester_match.group(2)}"
-    else:
-        year_match = re.search(r"\b(20\d{2})\b", spreadsheet_text)
-        if year_match:
-            global_semester = year_match.group(1)
-
-    course_match = re.search(r"(?:curso|graduação|habilitação):\s*([^\n|;]+)", spreadsheet_text, re.IGNORECASE)
-    if course_match:
-        global_course = course_match.group(1).strip()
-        
-    subject_match = re.search(r"(?:disciplina|matéria|componente curricular):\s*([^\n|;]+)", spreadsheet_text, re.IGNORECASE)
-    if subject_match:
-        global_subject = subject_match.group(1).strip()
-
-    for line in lines:
-        if any(kw in line.lower() for kw in ["curso:", "disciplina:", "matéria:", "semestre:", "professor:", "relatório", "nexora", "histórico"]):
-            continue
-            
-        if len(line) < 6:
-            continue
-            
-        # Tentar achar alguma situação textual (como "Aprovado", "Reprovado", "Risco")
-        situation = None
-        for word in ["aprovado", "reprovado", "risco", "alerta", "em risco", "reprovada", "aprovada"]:
-            if word in line.lower():
-                situation = word.capitalize()
-                line = re.sub(rf"\b{word}\b", " ", line, flags=re.IGNORECASE)
-                break
-            
-        attendance = None
-        att_match = re.search(r"\b(\d{2,3}(?:[\.,]\d+)?)\s*%", line)
-        if att_match:
-            attendance = _coerce_attendance(att_match.group(1))
-            line = line.replace(att_match.group(0), " ")
-            
-        student_code = None
-        code_match = re.match(r"^(\d{4,12})\b", line)
-        if code_match:
-            student_code = code_match.group(1)
-            line = line[code_match.end():].strip()
-            
-        numbers = re.findall(r"\b(\d{1,2}(?:[\.,]\d+)?)\b", line)
-        
-        if attendance is None and numbers:
-            last_num = _coerce_float(numbers[-1])
-            if last_num is not None and last_num > 10.0:
-                attendance = _coerce_attendance(last_num)
-                numbers = numbers[:-1]
-                
-        grades_list = []
-        for num in numbers:
-            g = _coerce_grade(num)
-            if g is not None:
-                grades_list.append(g)
-                
-        text_part = re.sub(r"[\d\.,;:|%\(\)\-\_]", " ", line).strip()
-        text_part = re.sub(r"\s+", " ", text_part).strip()
-        
-        words = text_part.split()
-        if not words or len(words) < 2:
-            if not words or len(words[0]) < 3 or not words[0][0].isupper():
-                continue
-                
-        student_name = text_part
-        student_norm = _normalize_text(student_name).upper()
-        if any(keyword in student_norm for keyword in ["ALUNO", "NOME", "MATRICULA", "CURSO", "DISCIPLINA", "SEMESTRE", "MÉDIA", "SITUAÇÃO"]):
-            continue
-            
-        grades_dict = {}
-        if grades_list:
-            if len(grades_list) == 1:
-                grades_dict["Nota"] = grades_list[0]
-            else:
-                for idx, g in enumerate(grades_list, start=1):
-                    grades_dict[f"Nota_{idx}"] = g
-                    
-        if situation:
-            grades_dict["SITUACAO"] = situation
-            
-        if student_name and (grades_dict or attendance is not None):
-            records.append({
-                "semester": global_semester or "Desconhecido",
-                "course_name": global_course or "Desconhecido",
-                "subject": global_subject or "Desconhecido",
-                "period": None,
-                "student_name": student_name,
-                "student_code": student_code,
-                "grades": grades_dict,
-                "attendance": attendance,
-            })
-            
-    return records
-
-
-def _extract_text_from_pdf(content: bytes) -> str:
-    import pdfplumber
-
-    pages_text = []
-    with pdfplumber.open(io.BytesIO(content)) as pdf:
-        for page in pdf.pages:
-            tables = page.extract_tables()
-            if tables:
-                for table in tables:
-                    for row in table:
-                        if row:
-                            pages_text.append(" | ".join([str(cell) if cell else "" for cell in row]))
-            else:
-                text = page.extract_text()
-                if text:
-                    pages_text.append(text)
-    return "\n".join(pages_text)
-
-
-def _merge_duplicate_records(records_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
-
-    for record in records_data:
-        key = (
-            _normalize_text(record.get("semester")),
-            _normalize_text(record.get("course_name")),
-            _normalize_text(record.get("subject")),
-            str(record.get("period") or ""),
-            _normalize_text(record.get("student_name")),
-        )
-        existing = grouped.get(key)
-        if not existing:
-            grouped[key] = {
-                "semester": str(record.get("semester") or "Desconhecido").strip() or "Desconhecido",
-                "course_name": str(record.get("course_name") or "Desconhecido").strip() or "Desconhecido",
-                "subject": str(record.get("subject") or "").strip() or None,
-                "period": record.get("period"),
-                "student_name": str(record.get("student_name") or "N/A").strip() or "N/A",
-                "grades": dict(record.get("grades") or {}),
-                "attendance": record.get("attendance"),
-            }
-            continue
-
-        existing["grades"].update({key_name: value for key_name, value in (record.get("grades") or {}).items() if value not in (None, "")})
-        existing_attendance = existing.get("attendance")
-        new_attendance = record.get("attendance")
-        if existing_attendance is None:
-            existing["attendance"] = new_attendance
-        elif new_attendance is not None:
-            existing["attendance"] = round((float(existing_attendance) + float(new_attendance)) / 2, 2)
-
-    return list(grouped.values())
-
-
-def _record_key(record: dict[str, Any]) -> tuple[str, str, str, str, str]:
-    return (
-        _normalize_text(record.get("semester")),
-        _normalize_text(record.get("course_name")),
-        _normalize_text(record.get("subject")),
-        str(record.get("period") or ""),
-        _normalize_text(record.get("student_name")),
-    )
-
-
-def _extract_status_label(grades: dict[str, Any]) -> str | None:
-    for key, value in (grades or {}).items():
-        key_name = str(key).strip().lower()
-        if "situacao" in key_name or "status" in key_name or "resultado" in key_name:
-            return str(value)
-    return None
-
-
-def _extract_numeric_grade_summary(grades: dict[str, Any]) -> tuple[float | None, list[dict[str, float]]]:
-    numeric_items: list[dict[str, float]] = []
-
-    for key, value in (grades or {}).items():
-        key_name = str(key).strip().lower()
-        if "situacao" in key_name or "status" in key_name or "resultado" in key_name:
-            continue
-
-        numeric_value = _coerce_grade(value)
-        if numeric_value is None:
-            continue
-
-        numeric_items.append({"label": str(key), "value": round(numeric_value, 2)})
-
-    if not numeric_items:
-        return None, []
-
-    average = round(sum(item["value"] for item in numeric_items) / len(numeric_items), 2)
-    return average, numeric_items[:4]
-
-
-def _format_student_enum(value: Any) -> str | None:
-    if value is None:
-        return None
-    if hasattr(value, "value"):
-        return str(value.value)
-    return str(value)
-
-
-def _build_upload_class_groups(records_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    groups: dict[str, dict[str, Any]] = {}
-
-    for record in records_data:
-        semester = record.get("semester") or "Sem semestre"
-        subject = record.get("subject") or "Turma sem disciplina"
-        course_name = record.get("course_name") or "Curso nao informado"
-        period_label = f"{record['period']}o periodo" if record.get("period") else "Periodo nao informado"
-        key = f"{semester}::{course_name}::{subject}::{period_label}"
-
-        group = groups.setdefault(key, {
-            "key": key,
-            "semester": semester,
-            "course_name": course_name,
-            "subject": subject,
-            "period_label": period_label,
-            "students": set(),
-            "attendance_values": [],
-            "grade_values": [],
-            "attention_count": 0,
-        })
-        group["students"].add(record.get("student_name") or "N/A")
-
-        attendance = _coerce_attendance(record.get("attendance"))
-        if attendance is not None:
-            group["attendance_values"].append(attendance)
-
-        grade_average, _ = _extract_numeric_grade_summary(record.get("grades") or {})
-        if grade_average is not None:
-            group["grade_values"].append(grade_average)
-
-        if (attendance is not None and attendance < 75) or (grade_average is not None and grade_average < 6):
-            group["attention_count"] += 1
-        elif _extract_status_label(record.get("grades") or {}) and re.search(r"reprov|risco|alerta", _extract_status_label(record.get("grades") or {}) or "", re.I):
-            group["attention_count"] += 1
-
-    payload = []
-    for group in groups.values():
-        attendance_values = group.pop("attendance_values")
-        grade_values = group.pop("grade_values")
-        students = group.pop("students")
-        payload.append({
-            **group,
-            "student_count": len(students),
-            "avg_attendance": round(sum(attendance_values) / len(attendance_values), 2) if attendance_values else None,
-            "avg_grade": round(sum(grade_values) / len(grade_values), 2) if grade_values else None,
-        })
-
-    payload.sort(key=lambda item: (-item["attention_count"], item["subject"], item["semester"]))
-    return payload[:8]
-
-
-def _serialize_historical_record(record: HistoricalRecord, matched_student: Student | None) -> dict[str, Any]:
-    grade_average, grade_items = _extract_numeric_grade_summary(record.grades or {})
-    status_label = _extract_status_label(record.grades or {})
-    schedule = _format_student_enum(getattr(matched_student, "class_schedule", None))
-    student_status = _format_student_enum(getattr(matched_student, "status", None))
-
-    return {
-        "id": record.id,
-        "semester": record.semester,
-        "course_name": record.course_name,
-        "subject": record.subject,
-        "period": record.period,
-        "student_name": matched_student.name if matched_student else record.student_name,
-        "attendance": record.attendance,
-        "grades": record.grades,
-        "grade_average": grade_average,
-        "grade_items": grade_items,
-        "status_label": status_label,
-        "class_key": f"{record.subject or 'Turma sem disciplina'}::{record.period or 'Sem periodo'}::{record.semester or 'Sem semestre'}::{record.course_name or 'Curso nao informado'}",
-        "professor_id": record.professor_id,
-        "student_id": getattr(matched_student, "id", None),
-        "registration_number": getattr(matched_student, "registration_number", None),
-        "current_period": getattr(matched_student, "current_period", None),
-        "class_schedule": schedule,
-        "student_status": student_status,
-        "enrollment_date": matched_student.enrollment_date.isoformat() if getattr(matched_student, "enrollment_date", None) else None,
-        "is_working": bool(getattr(matched_student, "is_working", False)),
-        "work_schedule": getattr(matched_student, "work_schedule", None),
-        "created_at": record.created_at.isoformat() if record.created_at else None,
-        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
-    }
-
-
-def _sync_historical_to_main_db(db: Session, records_data: list[dict[str, Any]], user_id: int):
-    """
-    Sincroniza registros históricos recém-importados diretamente com as tabelas principais do banco de dados (Course, Student, Enrollment, Grade, Attendance, ProfessorCourse).
-    Garante que todo o ecossistema do SIMA passe a dispor de dados verídicos e integrados de forma orgânica.
-    """
-    # 1. Carregar/Criar Professor
-    professor = db.query(Professor).filter(Professor.user_id == user_id).first()
-    if not professor:
-        professor = Professor(user_id=user_id)
-        db.add(professor)
-        db.flush()
-    
-    # 2. Caches locais em dicionário para performance máxima em SQLite (evita gargalo de consultas N+1)
-    courses_cache = {(c.name.strip().upper(), c.semester.strip()): c for c in db.query(Course).all()}
-    students_cache = {s.name.strip().upper(): s for s in db.query(Student).all()}
-    
-    # 3. Conjuntos para controlar relações existentes do professor
-    existing_prof_courses = {pc.course_id for pc in professor.professor_courses}
-    existing_prof_academic = {pa.course_name.strip().upper() for pa in professor.academic_courses}
-    
-    # 4. Criar disciplinas (Course) inexistentes de forma atômica
-    for record in records_data:
-        subject = (record.get("subject") or "").strip()
-        semester = (record.get("semester") or "Desconhecido").strip()
-        if not subject:
-            continue
-        
-        ckey = (subject.upper(), semester)
-        if ckey not in courses_cache:
-            cleaned_subj = re.sub(r'[^A-Z0-9]', '', subject.upper())[:6]
-            cleaned_sem = re.sub(r'[^A-Z0-9]', '', semester.upper())[:6]
-            h = abs(hash(subject + semester)) % 1000000
-            code = f"{cleaned_subj}{cleaned_sem}{h}"[:20]
-            
-            course = Course(
-                name=subject,
-                code=code,
-                credits=4,
-                semester=semester,
-                department=record.get("course_name", "Geral") or "Geral"
-            )
-            db.add(course)
-            db.flush()
-            courses_cache[ckey] = course
-            
-    # 5. Associar disciplinas e cursos acadêmicos ao professor logado (REMOVIDO para evitar poluição do perfil ativo)
-    # Anteriormente o histórico associava automaticamente as disciplinas ao professor ativo.
-    # Agora isso é controlado apenas via perfil/seleção manual de disciplinas reais.
-    pass
-
-            
-    db.flush()
-            
-    # 6. Criar alunos (Student) inexistentes
-    for record in records_data:
-        student_name = (record.get("student_name") or "").strip()
-        course_name = (record.get("course_name") or "").strip()
-        period = record.get("period")
-        student_code = record.get("student_code")
-        if not student_name:
-            continue
-            
-        skey = student_name.upper()
-        if skey not in students_cache:
-            h = abs(hash(student_name)) % 100000000
-            
-            # Se a planilha contiver matrícula real, usaremos ela; senão criamos código padrão visualizável
-            reg_number = student_code if student_code else f"ALU-{h}"
-            email = f"alu_{h}@sima.edu"
-            
-            student = Student(
-                name=student_name,
-                course_name=course_name or "Geral",
-                current_period=period,
-                email=email,
-                registration_number=reg_number,
-                enrollment_date=date.today(),
-                status=StudentStatus.ACTIVE
-            )
-            db.add(student)
-            db.flush()
-            students_cache[skey] = student
-            
-    # 7. Matrículas (Enrollment)
-    enrollments_cache = {(e.student_id, e.course_id): e for e in db.query(Enrollment).all()}
-    
-    for record in records_data:
-        student_name = (record.get("student_name") or "").strip()
-        subject = (record.get("subject") or "").strip()
-        semester = (record.get("semester") or "Desconhecido").strip()
-        if not student_name or not subject:
-            continue
-            
-        student = students_cache.get(student_name.upper())
-        course = courses_cache.get((subject.upper(), semester))
-        if student and course:
-            ekey = (student.id, course.id)
-            if ekey not in enrollments_cache:
-                enrollment = Enrollment(
-                    student_id=student.id,
-                    course_id=course.id,
-                    semester=semester,
-                    status=EnrollmentStatus.ENROLLED
-                )
-                db.add(enrollment)
-                enrollments_cache[ekey] = enrollment
-                
-    db.flush()
-    
-    # 8. Limpar Notas (Grade) e Frequências (Attendance) antigas para evitar duplicidade de reimportações
-    student_ids = [s.id for s in students_cache.values()]
-    course_ids = [c.id for c in courses_cache.values()]
-    
-    if student_ids and course_ids:
-        db.execute(
-            delete(Grade).where(
-                Grade.student_id.in_(student_ids),
-                Grade.course_id.in_(course_ids)
-            )
-        )
-        db.execute(
-            delete(Attendance).where(
-                Attendance.student_id.in_(student_ids),
-                Attendance.course_id.in_(course_ids)
-            )
-        )
-        
-    db.flush()
-        
-    # 9. Inserir Notas e Presenças de forma massiva e otimizada (Bulk Insert)
-    base_date = date.today() - timedelta(days=90)
-    bulk_grades = []
-    bulk_attendances = []
-    
-    # Se for planilha de grande porte (mais de 1.000 linhas), reduzimos a assiduidade diária operacional para 1 registro consolidado.
-    # Isso evita gerar 8.8 milhões de linhas para 147.000 alunos no SQLite, acelerando a importação em mais de 100x.
-    is_giant_file = len(records_data) > 1000
-    total_lessons = 1 if is_giant_file else 60
-    
-    for record in records_data:
-        student_name = (record.get("student_name") or "").strip()
-        subject = (record.get("subject") or "").strip()
-        semester = (record.get("semester") or "Desconhecido").strip()
-        if not student_name or not subject:
-            continue
-            
-        student = students_cache.get(student_name.upper())
-        course = courses_cache.get((subject.upper(), semester))
-        if student and course:
-            # Lançar Notas principais
-            grades_dict = record.get("grades") or {}
-            for name_val, val in grades_dict.items():
-                if name_val == "SITUACAO":
-                    continue
-                if val is not None:
-                    try:
-                        fval = float(val)
-                        bulk_grades.append({
-                            "student_id": student.id,
-                            "course_id": course.id,
-                            "value": fval,
-                            "weight": 1.0,
-                            "assessment_type": AssessmentType.EXAM,
-                            "description": str(name_val)
-                        })
-                    except ValueError:
-                        continue
-            
-            # Lançar Frequências
-            attendance_pct = record.get("attendance")
-            
-            if attendance_pct is not None:
-                try:
-                    att_float = float(attendance_pct)
-                    if att_float <= 1.0:
-                        att_float = att_float * 100.0
-                    
-                    if is_giant_file:
-                        # Para planilhas gigantes, cria apenas 1 presença consolidada diária de status geral
-                        status_val = AttendanceStatus.PRESENT if att_float >= 75.0 else AttendanceStatus.ABSENT
-                        bulk_attendances.append({
-                            "student_id": student.id,
-                            "course_id": course.id,
-                            "date": base_date,
-                            "status": status_val
-                        })
-                    else:
-                        absent_lessons = int(round(total_lessons * (1.0 - att_float / 100.0)))
-                        absent_lessons = max(0, min(total_lessons, absent_lessons))
-                        present_lessons = total_lessons - absent_lessons
-                        for idx in range(total_lessons):
-                            lesson_date = base_date + timedelta(days=idx)
-                            status_val = AttendanceStatus.PRESENT if idx < present_lessons else AttendanceStatus.ABSENT
-                            bulk_attendances.append({
-                                "student_id": student.id,
-                                "course_id": course.id,
-                                "date": lesson_date,
-                                "status": status_val
-                            })
-                except ValueError:
-                    bulk_attendances.append({
-                        "student_id": student.id,
-                        "course_id": course.id,
-                        "date": base_date,
-                        "status": AttendanceStatus.PRESENT
-                    })
-            else:
-                bulk_attendances.append({
-                    "student_id": student.id,
-                    "course_id": course.id,
-                    "date": base_date,
-                    "status": AttendanceStatus.PRESENT
-                })
-
-    # Executar inserções em lote otimizadas (Bulk Mappings em chunks)
-    if bulk_grades:
-        chunk_size = 10000
-        for i in range(0, len(bulk_grades), chunk_size):
-            db.bulk_insert_mappings(Grade, bulk_grades[i:i + chunk_size])
-            db.flush()
-            
-    if bulk_attendances:
-        chunk_size = 20000
-        for i in range(0, len(bulk_attendances), chunk_size):
-            db.bulk_insert_mappings(Attendance, bulk_attendances[i:i + chunk_size])
-            db.flush()
-                
-    db.flush()
 
 
 @router.post("/upload", response_model=HistoricalUploadResponse)
@@ -1071,10 +202,10 @@ async def upload_historical_spreadsheet(
             ).first()
             if not spreadsheet:
                 raise HTTPException(status_code=404, detail="Planilha de destino nao encontrada.")
-            
+
             # Limpar dados antigos associados a essa planilha na base principal
             _cleanup_main_db_for_spreadsheet(db, spreadsheet)
-            
+
             # Remover registros de alunos antigos vinculados a essa planilha
             db.execute(
                 delete(HistoricalRecord).where(
@@ -1082,7 +213,7 @@ async def upload_historical_spreadsheet(
                 )
             )
             db.flush()
-            
+
             # Atualizar metadados da planilha
             spreadsheet.filename = file.filename or "planilha_desconhecida"
             spreadsheet.semester = unique_semesters[0] if len(unique_semesters) == 1 else "Multiplos"
@@ -1102,7 +233,7 @@ async def upload_historical_spreadsheet(
                 professor_id=current_user.id
             )
             db.add(spreadsheet)
-            
+
         db.flush()  # Para obter o spreadsheet.id ou registrar atualizações
 
         # 3. Remover registros duplicados antigos de maneira performática (Bulk Delete) - Apenas se não for upload por cima
@@ -1143,14 +274,14 @@ async def upload_historical_spreadsheet(
                 "professor_id": current_user.id,
                 "spreadsheet_id": spreadsheet.id,
             })
-            
+
         # Inserção em chunks de 20.000 para manter consumo de memória baixo e evitar timeouts disfarçados
         chunk_size = 20000
         for i in range(0, len(bulk_data), chunk_size):
             chunk = bulk_data[i:i + chunk_size]
             db.bulk_insert_mappings(HistoricalRecord, chunk)
             db.flush()
-        
+
         # O backend não armazena mais localmente cada instância de new_records.
         # Nós usamos um mockup apenas para contabilizar para o front.
         new_records = bulk_data
@@ -1401,7 +532,7 @@ async def chat_about_spreadsheet(
                 grade_average, _ = _extract_numeric_grade_summary(r.grades or {})
                 if grade_average is not None:
                     numeric_grades.append(float(grade_average))
-                
+
                 is_at_risk = (r.attendance is not None and r.attendance < 75) or (grade_average is not None and grade_average < 6)
                 if is_at_risk:
                     risk_count += 1
@@ -1451,7 +582,7 @@ async def chat_about_spreadsheet(
                 grade_average, _ = _extract_numeric_grade_summary(r.grades or {})
                 if grade_average is not None:
                     numeric_grades.append(float(grade_average))
-                
+
                 is_at_risk = (r.attendance is not None and r.attendance < 75) or (grade_average is not None and grade_average < 6)
                 if is_at_risk:
                     risk_count += 1
@@ -1569,84 +700,6 @@ def list_uploaded_spreadsheets(
     }
 
 
-def _cleanup_main_db_for_spreadsheet(db: Session, spreadsheet: HistoricalSpreadsheet):
-    """
-    Remove da base de dados principal (Grade, Attendance, Enrollment, etc.) os dados gerados
-    a partir da planilha que está sendo excluída, mantendo o banco de dados limpo e consistente.
-    """
-    try:
-        # 1. Puxar todos os registros históricos associados à planilha
-        records = db.query(HistoricalRecord).filter(HistoricalRecord.spreadsheet_id == spreadsheet.id).all()
-        if not records:
-            return
-            
-        student_names = {r.student_name.strip().upper() for r in records if r.student_name}
-        subjects = {r.subject.strip().upper() for r in records if r.subject}
-        semesters = {r.semester.strip() for r in records if r.semester}
-        
-        if not student_names or not subjects:
-            return
-            
-        # 2. Localizar os alunos e disciplinas correspondentes no banco principal
-        students = db.query(Student).filter(Student.name.in_(student_names)).all()
-        student_ids = [s.id for s in students]
-        
-        courses = db.query(Course).filter(
-            Course.name.in_(subjects),
-            Course.semester.in_(semesters)
-        ).all()
-        course_ids = [c.id for c in courses]
-        
-        if not student_ids or not course_ids:
-            return
-            
-        # 3. Remover notas (Grade) e presenças (Attendance) correspondentes
-        db.execute(
-            delete(Grade).where(
-                Grade.student_id.in_(student_ids),
-                Grade.course_id.in_(course_ids)
-            )
-        )
-        db.execute(
-            delete(Attendance).where(
-                Attendance.student_id.in_(student_ids),
-                Attendance.course_id.in_(course_ids)
-            )
-        )
-        
-        # 4. Remover matrículas (Enrollment) correspondentes
-        db.execute(
-            delete(Enrollment).where(
-                Enrollment.student_id.in_(student_ids),
-                Enrollment.course_id.in_(course_ids)
-            )
-        )
-        
-        db.flush()
-        
-        # 5. Limpar estudantes cujos e-mails sejam do domínio sima.edu fictício
-        # e que não tenham mais nenhuma matrícula ativa no sistema
-        for student in students:
-            if student.email and student.email.endswith("@sima.edu"):
-                enrollment_count = db.query(Enrollment).filter(Enrollment.student_id == student.id).count()
-                if enrollment_count == 0:
-                    db.delete(student)
-                    
-        # 6. Limpar disciplinas (Course) fictícias que não tenham mais nenhuma matrícula ativa
-        for course in courses:
-            enrollment_count = db.query(Enrollment).filter(Enrollment.course_id == course.id).count()
-            if enrollment_count == 0:
-                # Remover associações de professor
-                db.execute(
-                    delete(ProfessorCourse).where(ProfessorCourse.course_id == course.id)
-                )
-                db.delete(course)
-                
-        db.flush()
-    except Exception as cleanup_exc:
-        logger.error("Erro ao limpar dados principais da planilha excluida: %s", cleanup_exc, exc_info=True)
-
-
 @router.delete("/spreadsheets/{id}")
 def delete_uploaded_spreadsheet(
     id: int,
@@ -1668,44 +721,6 @@ def delete_uploaded_spreadsheet(
     db.commit()
     HistoricalAnalysisService.clear_workspace_cache()
     return {"message": "Planilha e registros de alunos correspondentes removidos com sucesso."}
-
-
-def _recalculate_spreadsheet_stats(db: Session, spreadsheet_id: int):
-    spreadsheet = db.query(HistoricalSpreadsheet).filter(HistoricalSpreadsheet.id == spreadsheet_id).first()
-    if not spreadsheet:
-        return
-
-    records = db.query(HistoricalRecord).filter(HistoricalRecord.spreadsheet_id == spreadsheet_id).all()
-    
-    records_count = len(records)
-    
-    # Calcular média geral de notas e frequência
-    total_grade = 0.0
-    grade_count = 0
-    total_att = 0.0
-    att_count = 0
-    
-    for r in records:
-        if r.attendance is not None:
-            try:
-                total_att += float(r.attendance)
-                att_count += 1
-            except (ValueError, TypeError):
-                pass
-            
-        grade_avg, _ = _extract_numeric_grade_summary(r.grades or {})
-        if grade_avg is not None:
-            try:
-                total_grade += float(grade_avg)
-                grade_count += 1
-            except (ValueError, TypeError):
-                pass
-            
-    spreadsheet.records_count = records_count
-    spreadsheet.avg_grade = round(total_grade / grade_count, 2) if grade_count > 0 else 0.0
-    spreadsheet.avg_attendance = round(total_att / att_count, 2) if att_count > 0 else 0.0
-    
-    db.commit()
 
 
 @router.post("/records", status_code=201)
@@ -1823,7 +838,7 @@ def update_historical_record(
         record.course_name = str(data["course_name"]).strip()
     if "semester" in data:
         record.semester = str(data["semester"]).strip()
-    
+
     if "period" in data:
         try:
             record.period = int(data["period"]) if data["period"] is not None else None
@@ -1849,7 +864,7 @@ def update_historical_record(
     # Recalcular estatísticas gerais da planilha
     if record.spreadsheet_id:
         _recalculate_spreadsheet_stats(db, record.spreadsheet_id)
-        
+
     HistoricalAnalysisService.clear_workspace_cache()
 
     # Sincronizar na base principal para manter consistência
@@ -1894,7 +909,7 @@ def delete_historical_record(
     # Recalcular estatísticas gerais da planilha
     if spreadsheet_id:
         _recalculate_spreadsheet_stats(db, spreadsheet_id)
-        
+
     HistoricalAnalysisService.clear_workspace_cache()
 
     return {"message": "Registro de aluno histórico deletado com sucesso e médias da planilha atualizadas."}
@@ -2027,7 +1042,7 @@ async def generate_spreadsheet_ai_analysis(
                     attendance_values.append(float(r.attendance))
                 except (ValueError, TypeError):
                     pass
-                    
+
         has_attendance = len(attendance_values) > 0
         numeric_grades = []
         subject_stats = {}  # disciplina -> { grades: [], attendance: [], fail_count: 0, total_count: 0 }
@@ -2035,7 +1050,7 @@ async def generate_spreadsheet_ai_analysis(
 
         for r in records:
             grade_average, _ = _extract_numeric_grade_summary(r.grades or {})
-            
+
             # Garantir conversão robusta para float
             g_float = None
             if grade_average is not None:
@@ -2051,7 +1066,7 @@ async def generate_spreadsheet_ai_analysis(
                     att_val = float(r.attendance)
                 except (ValueError, TypeError):
                     pass
-            
+
             subj = (r.subject or "Geral").strip()
             if subj not in subject_stats:
                 subject_stats[subj] = {
@@ -2060,18 +1075,18 @@ async def generate_spreadsheet_ai_analysis(
                     "fail_count": 0,
                     "total_count": 0
                 }
-                
+
             stats = subject_stats[subj]
             stats["total_count"] += 1
-            
+
             if g_float is not None:
                 stats["grades"].append(g_float)
                 if g_float < 6.0:
                     stats["fail_count"] += 1
-                    
+
             if has_attendance and att_val is not None:
                 stats["attendance"].append(att_val)
-                
+
             # Aluno em risco (frequência < 75 ou nota < 6.0)
             is_at_risk = (has_attendance and att_val is not None and att_val < 75.0) or (g_float is not None and g_float < 6.0)
             if is_at_risk:
@@ -2096,7 +1111,7 @@ async def generate_spreadsheet_ai_analysis(
         critical_subject_name = "Geral"
         critical_subject_reason = "Todas as disciplinas apresentam desempenho estável."
         highest_fail_rate = -1.0
-        
+
         subject_details = []
         for subj, stats in subject_stats.items():
             # Filtrar matérias não convencionais/minúsculas de fachada (menos de 3 alunos)
@@ -2107,7 +1122,7 @@ async def generate_spreadsheet_ai_analysis(
             avg_s_grade = sum(stats["grades"]) / len(stats["grades"]) if stats["grades"] else 7.0
             avg_s_att = sum(stats["attendance"]) / len(stats["attendance"]) if has_attendance and stats["attendance"] else None
             fail_rate = (stats["fail_count"] / stats["total_count"]) * 100.0 if stats["total_count"] > 0 else 0.0
-            
+
             subject_details.append({
                 "subject_name": subj,
                 "avg_grade": round(avg_s_grade, 2),
@@ -2115,7 +1130,7 @@ async def generate_spreadsheet_ai_analysis(
                 "fail_rate": round(fail_rate, 2),
                 "total_students": stats["total_count"]
             })
-            
+
             if fail_rate > highest_fail_rate or (fail_rate == highest_fail_rate and avg_s_grade < 6.0):
                 highest_fail_rate = fail_rate
                 critical_subject_name = subj
@@ -2217,7 +1232,7 @@ Seja extremamente profissional, com alto rigor analítico e tom pedagógico cons
                         "max_output_tokens": 4096,
                     },
                 )
-                
+
                 text = ""
                 try:
                     text = response.text
@@ -2229,10 +1244,10 @@ Seja extremamente profissional, com alto rigor analítico e tom pedagógico cons
                                 text = part_text
                                 break
                         if text: break
-                
+
                 if not text or not text.strip():
                     raise ValueError("Resposta vazia da API do Gemini")
-                    
+
                 report_markdown = text
             except Exception as gemini_err:
                 logger.error("Erro na API do Gemini em ai-analysis, usando fallback local: %s", gemini_err)
@@ -2291,7 +1306,7 @@ async def generate_spreadsheet_ai_insights(
                     attendance_values.append(float(r.attendance))
                 except (ValueError, TypeError):
                     pass
-                    
+
         has_attendance = len(attendance_values) > 0
         numeric_grades = []
         subject_stats = {}  # disciplina -> { grades: [], attendance: [], fail_count: 0, total_count: 0 }
@@ -2299,7 +1314,7 @@ async def generate_spreadsheet_ai_insights(
 
         for r in records:
             grade_average, _ = _extract_numeric_grade_summary(r.grades or {})
-            
+
             # Garantir conversão robusta para float
             g_float = None
             if grade_average is not None:
@@ -2315,7 +1330,7 @@ async def generate_spreadsheet_ai_insights(
                     att_val = float(r.attendance)
                 except (ValueError, TypeError):
                     pass
-            
+
             subj = (r.subject or "Geral").strip()
             if subj not in subject_stats:
                 subject_stats[subj] = {
@@ -2324,18 +1339,18 @@ async def generate_spreadsheet_ai_insights(
                     "fail_count": 0,
                     "total_count": 0
                 }
-                
+
             stats = subject_stats[subj]
             stats["total_count"] += 1
-            
+
             if g_float is not None:
                 stats["grades"].append(g_float)
                 if g_float < 6.0:
                     stats["fail_count"] += 1
-                    
+
             if has_attendance and att_val is not None:
                 stats["attendance"].append(att_val)
-                
+
             # Aluno em risco (frequência < 75 ou nota < 6.0)
             is_at_risk = (has_attendance and att_val is not None and att_val < 75.0) or (g_float is not None and g_float < 6.0)
             if is_at_risk:
@@ -2360,7 +1375,7 @@ async def generate_spreadsheet_ai_insights(
         critical_subject_name = "Geral"
         critical_subject_reason = "Todas as disciplinas apresentam desempenho estável."
         highest_fail_rate = -1.0
-        
+
         subject_details = []
         for subj, stats in subject_stats.items():
             # Filtrar matérias não convencionais/minúsculas de fachada (menos de 3 alunos)
@@ -2371,7 +1386,7 @@ async def generate_spreadsheet_ai_insights(
             avg_s_grade = sum(stats["grades"]) / len(stats["grades"]) if stats["grades"] else 7.0
             avg_s_att = sum(stats["attendance"]) / len(stats["attendance"]) if has_attendance and stats["attendance"] else None
             fail_rate = (stats["fail_count"] / stats["total_count"]) * 100.0 if stats["total_count"] > 0 else 0.0
-            
+
             subject_details.append({
                 "subject_name": subj,
                 "avg_grade": round(avg_s_grade, 2),
@@ -2379,7 +1394,7 @@ async def generate_spreadsheet_ai_insights(
                 "fail_rate": round(fail_rate, 2),
                 "total_students": stats["total_count"]
             })
-            
+
             if fail_rate > highest_fail_rate or (fail_rate == highest_fail_rate and avg_s_grade < 6.0):
                 highest_fail_rate = fail_rate
                 critical_subject_name = subj
@@ -2483,7 +1498,7 @@ Seja prático, focado e pedagógico, usando tom de consultoria Big Tech.
                                 text = part_text
                                 break
                         if text: break
-                
+
                 if text and text.strip():
                     return {"success": True, "insights": text}
             except Exception as gemini_err:
@@ -2501,78 +1516,3 @@ Seja prático, focado e pedagógico, usando tom de consultoria Big Tech.
             status_code=500,
             detail=f"Não foi possível processar as análises pedagógicas reais desta planilha. Detalhes: {exc}"
         )
-
-
-def _generate_fallback_ai_analysis_markdown(
-    kpis: dict,
-    top_5_risk: list,
-    critical_subject_name: str,
-    critical_subject_reason: str
-) -> str:
-    """Gera um relatório markdown offline com as estatísticas reais da planilha."""
-    
-    has_att = kpis.get("has_attendance", False)
-    
-    # Formatar os alunos em risco em lista markdown
-    risk_list = ""
-    for idx, s in enumerate(top_5_risk, 1):
-        att_str = f"{s['attendance']}%" if has_att and s['attendance'] is not None else "--%"
-        risk_list += (
-            f"{idx}. **{s['name']}** ({s['subject']}) "
-            f"| Média Geral: **{s['gpa'] or 'N/A'}** "
-            f"| Presença: **{att_str}**\n"
-            f"   - *Motivo do Risco*: Apresenta notas parciais abaixo da média ideal pedagógica (6.0) ou vulnerabilidade de aproveitamento acadêmico em sala.\n"
-            f"   - *Ação Recomendada*: Convidar para plantão de dúvidas individual imediato e sugerir revisão focada sobre a primeira avaliação.\n\n"
-        )
-    if not risk_list:
-        risk_list = "*Nenhum aluno sob risco alto identificado.*\n"
-
-    if has_att:
-        attendance_bullet = f"*   **Impacto de Assiduidade**: Observou-se uma forte correlação estatística entre o índice de faltas dos alunos e a queda no aproveitamento das notas médias de VA. Alunos que mantêm assiduidade abaixo de 75% sofrem uma redução de até 25% na nota final média."
-        attendance_text = f"{kpis['avg_attendance']}%"
-    else:
-        attendance_bullet = f"*   **Foco Exclusivo em Notas**: Como esta base histórica não registrou índices de frequência (presença) dos alunos, as análises e diagnósticos pedagógicos se concentram inteiramente no aproveitamento das notas e avaliações acadêmicas."
-        attendance_text = "Não identificada (--%)"
-
-    markdown = f"""# 📊 ANÁLISE DE IA: {kpis['filename']}
-
-## 1. Principais Tópicos & Padrões Pedagógicos Encontrados
-Fizemos uma varredura completa e inteligente nos dados do arquivo **{kpis['filename']}** referente ao semestre **{kpis['semester']}** do curso de **{kpis['course_name']}**. Nossas análises locais apontam os seguintes padrões estruturais:
-
-{attendance_bullet}
-*   **Distribuição das VAs**: Há um gargalo visível de queda de notas na transição da 1ª VA para a 2ª VA nas turmas, sugerindo que o aumento da complexidade conceitual das matérias não foi acompanhado de tutorias ou plantões de dúvidas tempestivos.
-*   **Indicadores Gerais**: A média de aproveitamento geral está em **{kpis['avg_grade']}** com presença média consolidada em **{attendance_text}**. Registramos **{kpis['at_risk_count']} estudantes** em zona de atenção pedagógica.
-
-## 2. Top 5 Alunos em Situação Crítica de Risco
-Identificamos os seguintes 5 estudantes da planilha que requerem contato proativo pedagógico e suporte preventivo imediato:
-
-{risk_list}
-
-## 3. Disciplina Gargalo (Maior Risco Acadêmico)
-*   **Componente Curricular Crítico**: **{critical_subject_name}**
-*   **Diagnóstico**: {critical_subject_reason}
-*   **Análise de Desempenho**: Esta disciplina apresenta a menor média geral de notas acumuladas do arquivo e a maior taxa de evasão e reprovação escolar. Sugere-se realizar um plano emergencial de alinhamento pedagógico e revisão de ementas com o docente responsável pelo componente.
-
-## 4. Plano de Intervenção Pedagógica (Como Intervir e Como Melhorar)
-Para atenuar os desvios de desempenho diagnosticados nesta base, o NEXORA IA sugere o seguinte plano tático estruturado:
-
-### Ações de Curtíssimo Prazo (Como intervir agora)
-1.  **Convocação Proativa**: Disparar um e-mail institucional amigável aos 5 alunos identificados em situação crítica, convidando-os a comparecerem a um atendimento acadêmico individual.
-2.  **Oficinas de Recuperação**: Agendar uma aula extra de revisão e resolução de exercícios práticos, com foco exclusivo nos temas onde a turma registrou pior aproveitamento.
-3.  **Avaliações Formativas de Recuperação**: Aplicar atividades de menor peso conceitual para ajudar a recompor o GPA sem sobrecarregar psicologicamente o estudante.
-
-### Ações de Médio e Longo Prazo (Como melhorar)
-1.  **Monitoria Acadêmica**: Alocar monitores de destaque para darem plantões semanais fixos para a disciplina de **{critical_subject_name}**.
-2.  **Método de Avaliação Fracionada**: Recomendar a redução de grandes provas únicas por um sistema de pequenos testes formativos semanais, permitindo feedback em tempo real.
-3.  **Ambiente de Nivelamento**: Criar um repositório centralizado de videoaulas e materiais de apoio curtos para nivelamento dos ingressantes.
-
-## 5. Sugestões de Tecnologias Educacionais de Apoio
-Para apoiar o corpo docente na mediação pedagógica eficaz, recomendamos as seguintes soluções digitais integradas:
-
-1.  **Kahoot! ou Mentimeter**: Para avaliações formativas dinâmicas e gamificadas no início das aulas da disciplina de **{critical_subject_name}**, identificando lacunas conceituais em tempo real de forma lúdica.
-2.  **Google Classroom / Teams (Tópicos de Nivelamento)**: Criação de trilhas assíncronas com materiais de estudo rápidos para preenchimento de lacunas de pré-requisitos acadêmicos.
-3.  **Trello ou Notion**: Uso de painéis de acompanhamento visual compartilhados para apoiar a organização pessoal e o cronograma de estudos dos estudantes listados sob alto risco acadêmico.
-"""
-    return markdown
-
-

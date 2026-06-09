@@ -20,6 +20,7 @@ import { ProfessorProfile } from '@/pages/ProfessorProfile';
 import { StudentProfile } from '@/pages/StudentProfile';
 import { HistoricalData } from '@/pages/HistoricalData';
 import { CoordinatorDashboard } from '@/pages/CoordinatorDashboard';
+import { ProrreitorDashboard } from '@/pages/ProrreitorDashboard';
 import { AnalysisCenter } from '@/pages/AnalysisCenter';
 
 function App() {
@@ -57,7 +58,7 @@ function App() {
                         <Route path="professor/analysis-center" element={<AnalysisCenter />} />
 
                         {/* Proreitor routes */}
-                        <Route path="proreitor/dashboard" element={<ProfessorDashboard />} />
+                        <Route path="proreitor/dashboard" element={<ProrreitorDashboard />} />
                         <Route path="proreitor/courses" element={<ProfessorCourses />} />
                         <Route path="proreitor/profile" element={<ProfessorProfile />} />
                         <Route path="proreitor/historical-upload" element={<HistoricalData defaultTab="upload" />} />
