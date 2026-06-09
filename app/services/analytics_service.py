@@ -474,11 +474,24 @@ class AnalyticsService:
         pass_info = self.stats.compute_pass_rate(all_grades) if all_grades else {"pass_rate": 0.0}
         grade_dist = self.stats.compute_grade_distribution(all_grades) if all_grades else {}
 
+        # Verificar se existem notas preditivas inseridas para estas disciplinas/alunos
+        from app.models.grade import Grade
+        grade_filter = Grade.course_id.in_(course_ids) if course_ids else Grade.id.isnot(None)
+        if student_ids is not None:
+            grade_filter = grade_filter & Grade.student_id.in_(student_ids)
+
+        is_projected = self.db.query(Grade).filter(
+            grade_filter,
+            Grade.description.like("%Projetada%") | Grade.description.like("%✨%")
+        ).count() > 0
+
         # Risk summary
         risk_summary = {"low": 0, "medium": 0, "high": 0, "critical": 0}
         for sid, gpa, att in zip(active_ids, gpas, attendance_rates):
             _, risk_level = self._get_student_risk(sid, gpa, att)
             risk_summary[risk_level] += 1
+
+        preventive_risk_count = risk_summary["high"] + risk_summary["critical"] if is_projected else 0
 
         # Top at risk students
         student_risks = []
@@ -506,6 +519,8 @@ class AnalyticsService:
                 "average_attendance_rate": avg_attendance,
                 "at_risk_count": at_risk,
                 "pass_rate": pass_info.get("pass_rate", 0.0),
+                "is_projected": is_projected,
+                "preventive_risk_count": preventive_risk_count,
             },
             "grade_distribution": grade_dist,
             "risk_summary": risk_summary,

@@ -380,3 +380,56 @@ class TestIncompleteSpreadsheet:
         finally:
             db.close()
 
+    def test_analysis_workspace_calculates_projected_stats(self, professor_client):
+        """Verifica se o endpoint do workspace de análises expõe is_projected e a contagem de riscos preventivos."""
+        # 1. Primeiro realizar upload de uma planilha incompleta para gerar dados de teste
+        csv_data = (
+            "aluno,sem_letivo,curso,disciplina,periodo,nota,frequencia,va1,va2\n"
+            "Carlos Drumond,2024-1,Ciencia da Computacao,Estrutura de Dados,2,8.0,95.0,4.0,5.0\n"
+            "Cecilia Meireles,2024-1,Ciencia da Computacao,Estrutura de Dados,2,9.0,100.0,9.0,9.5\n"
+        )
+        file_payload = {
+            "file": ("notas_workspace_proj_2024.csv", io.BytesIO(csv_data.encode("utf-8")), "text/csv")
+        }
+        resp = professor_client.post("/api/historical-data/upload", files=file_payload)
+        assert resp.status_code == 200
+
+        db = SessionLocal()
+        try:
+            sheet = db.query(HistoricalSpreadsheet).filter(HistoricalSpreadsheet.filename == "notas_workspace_proj_2024.csv").first()
+            assert sheet is not None
+            assert sheet.is_completed is False
+
+            # 2. Consultar o workspace de análises para essa planilha específica
+            resp_workspace = professor_client.get(f"/api/historical-data/analysis-workspace?spreadsheet_id={sheet.id}")
+            assert resp_workspace.status_code == 200
+            w_data = resp_workspace.json()
+
+            # 3. Validar se contem is_projected = True e preventive_risk_count >= 0 no overview
+            assert "overview" in w_data
+            assert w_data["overview"]["is_projected"] is True
+            assert "preventive_risk_count" in w_data["overview"]
+            assert isinstance(w_data["overview"]["preventive_risk_count"], int)
+        finally:
+            db.close()
+
+    def test_grades_scenario_simulation(self, professor_client):
+        """Verifica se o endpoint /simulate calcula corretamente a simulação preditiva."""
+        # Simular notas para um estudante sem perfil persistido
+        payload = {
+            "student_name": "Machado de Assis Simulado",
+            "grades": {"VA1": 5.0, "VA2": 6.0},
+            "attendance": 80.0
+        }
+
+        resp = professor_client.post("/api/historical-data/simulate", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["student_name"] == "Machado de Assis Simulado"
+        assert "simulated_grades" in data
+        assert "VA3 (Projetada) ✨" in data["simulated_grades"]
+        assert "simulated_average" in data
+        assert isinstance(data["simulated_average"], float)
+        assert "simulated_situation" in data
+

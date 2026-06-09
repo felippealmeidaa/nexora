@@ -14,6 +14,7 @@ from app.models.coordinator import Coordinator
 from app.models.course import Course
 from app.models.enrollment import Enrollment
 from app.models.historical_data import HistoricalRecord
+from app.models.historical_spreadsheet import HistoricalSpreadsheet
 from app.models.professor import Professor, ProfessorCourse
 from app.models.scraped_data import ScrapedAttendance, ScrapedGrade, ScrapedSubject
 from app.models.student import Student, StudentStatus
@@ -1030,6 +1031,15 @@ class HistoricalAnalysisService:
             activity_points_by_record[record.id] = activity_points
             max_activity_points = max(max_activity_points, activity_points)
 
+        # Pré-carregar status de conclusão das planilhas para evitar N+1 queries
+        spreadsheet_ids = {r.spreadsheet_id for r in records if r.spreadsheet_id}
+        spreadsheet_status = {}
+        if spreadsheet_ids:
+            sheets = self.db.query(HistoricalSpreadsheet.id, HistoricalSpreadsheet.is_completed).filter(
+                HistoricalSpreadsheet.id.in_(spreadsheet_ids)
+            ).all()
+            spreadsheet_status = {s.id: s.is_completed for s in sheets}
+
         prepared = []
         for record in records:
             matched_student = self._match_student(record, student_by_name, student_by_name_and_course)
@@ -1083,6 +1093,7 @@ class HistoricalAnalysisService:
                 "attendance_drop": 0.0,
                 "discipline_difficulty": 0.0,
                 "class_key": f"{class_label}::{record.semester or 'Sem periodo'}::{record.course_name or 'Curso'}",
+                "is_completed": spreadsheet_status.get(record.spreadsheet_id, True),
             })
         return prepared
 
@@ -1341,6 +1352,9 @@ class HistoricalAnalysisService:
                 "risk_level": r.get("risk_level"),
             })
 
+        is_projected = any(not record.get("is_completed", True) for record in prepared_records)
+        preventive_risk_count = sum(1 for record in prepared_records if record.get("risk_level") in ("high", "critical")) if is_projected else 0
+
         return {
             "total_records": len(prepared_records),
             "total_students": len(student_names),
@@ -1355,6 +1369,8 @@ class HistoricalAnalysisService:
             "course_distribution": course_distribution,
             "model_diagnostics": model_diagnostics or self.statistical_risk_service._fallback_context("Modelagem indisponivel."),
             "top_at_risk": top_at_risk,
+            "is_projected": is_projected,
+            "preventive_risk_count": preventive_risk_count,
         }
 
 
@@ -1462,6 +1478,7 @@ class HistoricalAnalysisService:
             2,
         )
         at_risk_students = self._serialize_priority_students(items, limit=4)
+        is_projected = any(not item.get("is_completed", True) for item in items)
 
         return {
             "id": group_id,
@@ -1485,6 +1502,8 @@ class HistoricalAnalysisService:
             "priority_index": priority_index,
             "recommended_focus": self._build_focus_message(avg_grade, avg_attendance, avg_activity, avg_risk, working_share),
             "at_risk_students": at_risk_students,
+            "is_projected": is_projected,
+            "preventive_risk_count": critical_students,
         }
 
     def _build_between_classes(

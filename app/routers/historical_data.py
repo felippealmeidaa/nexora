@@ -1663,3 +1663,132 @@ Seja prático, focado e pedagógico, usando tom de consultoria Big Tech.
             status_code=500,
             detail=f"Não foi possível processar as análises pedagógicas reais desta planilha. Detalhes: {exc}"
         )
+
+
+from pydantic import BaseModel
+
+class SimulationRequest(BaseModel):
+    student_id: Optional[int] = None
+    student_code: Optional[str] = None
+    student_name: Optional[str] = None
+    grades: dict[str, Any]  # ex: {"VA1": 7.0, "VA2": 5.0}
+    attendance: Optional[float] = None
+
+
+@router.post("/simulate")
+def simulate_grades_scenario(
+    request: SimulationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Simula cenário preditivo de notas para um aluno.
+    Permite projetar a média final e a situação do aluno com base em notas simuladas.
+    """
+    student = None
+    if request.student_id:
+        student = db.query(Student).filter(Student.id == request.student_id).first()
+    if not student and request.student_code:
+        student = db.query(Student).filter(Student.registration_number == request.student_code).first()
+    if not student and request.student_name:
+        student = db.query(Student).filter(Student.name.ilike(request.student_name.strip())).first()
+
+    gpa = None
+    failures = 0
+    is_working = False
+    schedule = None
+    hist_att = None
+
+    if student:
+        is_working = bool(student.is_working)
+        schedule = student.class_schedule.value if student.class_schedule and hasattr(student.class_schedule, "value") else (student.class_schedule if isinstance(student.class_schedule, str) else None)
+
+        # Calcular GPA histórico
+        grades_list = db.query(Grade.value).filter(Grade.student_id == student.id).all()
+        if grades_list:
+            gpa = sum(grade_val[0] for grade_val in grades_list) / len(grades_list)
+
+        # Contar reprovações passadas
+        failures = db.query(Enrollment).filter(
+            Enrollment.student_id == student.id,
+            Enrollment.status == EnrollmentStatus.FAILED
+        ).count()
+
+        # Presença histórica do aluno
+        attendances_list = db.query(Attendance.status).filter(Attendance.student_id == student.id).all()
+        if attendances_list:
+            present = sum(1 for a in attendances_list if a[0] in ("PRESENT", "LATE", "JUSTIFIED"))
+            hist_att = (present / len(attendances_list)) * 100
+
+    # Configurar predictor e treinar
+    predictor = PartialSemesterPredictor()
+    train_features = []
+    train_targets = []
+    past_records = db.query(HistoricalRecord).filter(HistoricalRecord.grades.isnot(None)).all()
+    for r in past_records[:1000]:
+        g = r.grades or {}
+        k_upper = {str(k).upper().strip(): v for k, v in g.items()}
+        if "VA1" in k_upper and "VA2" in k_upper and "VA3" in k_upper:
+            try:
+                va1 = _coerce_grade(k_upper["VA1"])
+                va2 = _coerce_grade(k_upper["VA2"])
+                va3 = _coerce_grade(k_upper["VA3"])
+                if va1 is not None and va2 is not None and va3 is not None:
+                    gpa_approx = (va1 + va2 + va3) / 3
+                    train_features.append([va1, va2, gpa_approx, 0.0, 0.0, 0.0])
+                    train_targets.append(va3)
+            except Exception:
+                continue
+
+    if len(train_features) >= 10:
+        try:
+            predictor.train(train_features, train_targets)
+        except Exception:
+            pass
+
+    # Garantir que as chaves do dicionário de notas estejam normalizadas
+    grades_dict = {str(k).upper().strip(): v for k, v in request.grades.items()}
+
+    # Predizer as notas de forma recursiva
+    predicted_grades = predictor.predict_missing_grades(
+        grades=grades_dict,
+        gpa_cum=gpa,
+        failures=failures,
+        is_working=is_working,
+        class_schedule=schedule
+    )
+
+    # Predizer a frequência projetada
+    curr_att = request.attendance
+    if curr_att is None and student:
+        # Tenta carregar presença atual do estudante no banco principal para disciplinas ativas
+        db_att = db.query(Attendance.status).filter(Attendance.student_id == student.id).all()
+        if db_att:
+            present = sum(1 for a in db_att if a[0] in ("PRESENT", "LATE", "JUSTIFIED"))
+            curr_att = (present / len(db_att)) * 100
+
+    # Se ainda nulo, assume 100% como padrão (ou 75%)
+    if curr_att is None:
+        curr_att = 100.0
+
+    predicted_att = predictor.predict_final_attendance(curr_att, hist_att)
+
+    # Calcular média simulada final
+    from app.historical.serializer import _extract_numeric_grade_summary
+    avg_proj, _ = _extract_numeric_grade_summary(predicted_grades)
+    simulated_avg = avg_proj if avg_proj is not None else 5.0
+
+    # Estimar situação final
+    situation = predictor.predict_final_situation(simulated_avg, predicted_att)
+
+    return {
+        "student_id": student.id if student else None,
+        "student_name": student.name if student else (request.student_name or "Estudante Simulado"),
+        "gpa_cumulative": round(gpa, 2) if gpa is not None else None,
+        "is_working": is_working,
+        "class_schedule": schedule,
+        "simulated_grades": predicted_grades,
+        "simulated_attendance": predicted_att,
+        "simulated_average": round(simulated_avg, 2),
+        "simulated_situation": situation
+    }
