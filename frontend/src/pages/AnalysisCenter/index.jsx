@@ -2509,18 +2509,6 @@ export function AnalysisCenter() {
     const [activeDropdownGroup, setActiveDropdownGroup] = useState(null);
     const [lockedDropdownGroup, setLockedDropdownGroup] = useState(null);
 
-    // Sincronizar grupo travado com a análise selecionada
-    useEffect(() => {
-        if (selectedAnalysis && selectedAnalysis !== 'overview') {
-            const activeGrp = (analysisGroups || []).find(g => g.analysisIds.includes(selectedAnalysis));
-            if (activeGrp) {
-                setLockedDropdownGroup(activeGrp.id);
-            }
-        } else if (selectedAnalysis === 'overview') {
-            setLockedDropdownGroup(null);
-        }
-    }, [selectedAnalysis, analysisGroups]);
-
     const analyses = workspace?.available_analyses || [];
     const hasRecords = Number(workspace?.overview?.total_records || 0) > 0;
 
@@ -2569,6 +2557,18 @@ export function AnalysisCenter() {
             })
             .filter((section) => section.available.length > 0);
     }, [analysesById, intentAllowedAnalyses]);
+
+    // Sincronizar grupo travado com a análise selecionada
+    useEffect(() => {
+        if (selectedAnalysis && selectedAnalysis !== 'overview') {
+            const activeGrp = (analysisGroups || []).find(g => g.analysisIds.includes(selectedAnalysis));
+            if (activeGrp) {
+                setLockedDropdownGroup(activeGrp.id);
+            }
+        } else if (selectedAnalysis === 'overview') {
+            setLockedDropdownGroup(null);
+        }
+    }, [selectedAnalysis, analysisGroups]);
 
     const analysisCounts = useMemo(() => {
         const data = workspace?.analysis_data;
