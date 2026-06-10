@@ -97,13 +97,13 @@ function DisciplineRiskPanel({ rows }) {
 
     const driverLabels = {
         nota: 'Nota',
-        primeira_avaliacao: 'Primeira avalia\u00e7\u00e3o',
-        presenca: 'Presen\u00e7a',
-        queda_presenca: 'Queda de presen\u00e7a',
+        primeira_avaliacao: 'Primeira avaliação',
+        presenca: 'Presença',
+        queda_presenca: 'Queda de presença',
         atividade: 'Atividade',
         oscilacao: 'Oscilacao',
-        aprovacao: 'Reprova\u00e7\u00e3o',
-        historico: 'Hist\u00f3rico',
+        aprovacao: 'Reprovação',
+        historico: 'Histórico',
         carga: 'Carga',
         dificuldade_disciplina: 'Dificuldade',
         trabalho: 'Trabalho',
@@ -119,15 +119,15 @@ function DisciplineRiskPanel({ rows }) {
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
-                        { label: 'Risco m\u00e9dio', description: 'M\u00e9dia do risco estimado nos registros da disciplina (maior = pior).' },
-                        { label: 'Cr\u00edticos/altos', description: 'Quantidade de registros com risco alto/critico na disciplina.' },
+                        { label: 'Risco médio', description: 'Média do risco estimado nos registros da disciplina (maior = pior).' },
+                        { label: 'Críticos/altos', description: 'Quantidade de registros com risco alto/critico na disciplina.' },
                         { label: 'Principais causas', description: 'Fatores que mais puxaram o risco para cima nessa disciplina.' },
                     ]}
                 />
 
                 {!safeRows.length ? (
                     <div className="rounded-[22px] border border-dashed border-border-subtle bg-bg-secondary/40 px-6 py-10 text-center text-sm text-text-secondary">
-                        Ainda n\u00e3o h\u00e1 dados suficientes para calcular risco por disciplina.
+                        Ainda não há dados suficientes para calcular risco por disciplina.
                     </div>
                 ) : (
                     <>
@@ -144,7 +144,7 @@ function DisciplineRiskPanel({ rows }) {
                                     <XAxis type="number" tickLine={false} axisLine={false} fontSize={12} />
                                     <YAxis type="category" dataKey="disciplina" tickLine={false} axisLine={false} fontSize={12} width={160} />
                                     <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
-                                    <Bar dataKey="risco" fill="url(#gradientDiscipline)" radius={[10, 10, 10, 10]} name="Risco m\u00e9dio (%)" />
+                                    <Bar dataKey="risco" fill="url(#gradientDiscipline)" radius={[10, 10, 10, 10]} name="Risco médio (%)" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -154,10 +154,10 @@ function DisciplineRiskPanel({ rows }) {
                                 <thead>
                                     <tr className="text-left text-xs font-semibold uppercase tracking-[0.14em] text-text-tertiary">
                                         <th className="px-4">Disciplina</th>
-                                        <th className="px-4">Risco m\u00e9dio</th>
-                                        <th className="px-4">Cr\u00edticos/altos</th>
+                                        <th className="px-4">Risco médio</th>
+                                        <th className="px-4">Críticos/altos</th>
                                         <th className="px-4">Nota</th>
-                                        <th className="px-4">{"Presen\u00e7a"}</th>
+                                        <th className="px-4">{"Presença"}</th>
                                         <th className="px-4">Principais causas</th>
                                     </tr>
                                 </thead>
@@ -212,20 +212,20 @@ function StudentSegmentsPanel({ rows }) {
         <Card>
             <CardHeader
                 title="Segmentos de alunos"
-                subtitle="Perfis para aplicar interven\u00e7\u00f5es diferentes (com menos tentativa e erro)."
+                subtitle="Perfis para aplicar intervenções diferentes (com menos tentativa e erro)."
                 icon={Users}
             />
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
-                        { label: 'Segmento', description: 'Grupo com caracter\u00edsticas parecidas (nota/presença/atividade/risco).' },
+                        { label: 'Segmento', description: 'Grupo com características parecidas (nota/presença/atividade/risco).' },
                         { label: 'Alunos', description: 'Quantidade de alunos nesse perfil.' },
                     ]}
                 />
 
                 {!safeRows.length ? (
                     <div className="rounded-[22px] border border-dashed border-border-subtle bg-bg-secondary/40 px-6 py-10 text-center text-sm text-text-secondary">
-                        Ainda n\u00e3o h\u00e1 dados suficientes para segmentar alunos.
+                        Ainda não há dados suficientes para segmentar alunos.
                     </div>
                 ) : (
                     <>
@@ -253,9 +253,9 @@ function StudentSegmentsPanel({ rows }) {
                                     <tr className="text-left text-xs font-semibold uppercase tracking-[0.14em] text-text-tertiary">
                                         <th className="px-4">Segmento</th>
                                         <th className="px-4">Alunos</th>
-                                        <th className="px-4">Risco m\u00e9dio</th>
+                                        <th className="px-4">Risco médio</th>
                                         <th className="px-4">Nota</th>
-                                        <th className="px-4">{"Presen\u00e7a"}</th>
+                                        <th className="px-4">{"Presença"}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -291,20 +291,20 @@ function RiskProjectionPanel({ rows }) {
         <Card>
             <CardHeader
                 title="Projeção de risco"
-                subtitle="Uma previs\u00e3o simples baseada na tend\u00eancia do aluno (para agir antes)."
+                subtitle="Uma previsão simples baseada na tendência do aluno (para agir antes)."
                 icon={TrendingUp}
             />
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
                         { label: 'Agora', description: 'Risco atual estimado.' },
-                        { label: '8 semanas', description: 'Proje\u00e7\u00e3o aproximada se a tend\u00eancia continuar igual.' },
+                        { label: '8 semanas', description: 'Projeção aproximada se a tendência continuar igual.' },
                     ]}
                 />
 
                 {!safeRows.length ? (
                     <div className="rounded-[22px] border border-dashed border-border-subtle bg-bg-secondary/40 px-6 py-10 text-center text-sm text-text-secondary">
-                        Ainda n\u00e3o h\u00e1 dados suficientes para proje\u00e7\u00e3o.
+                        Ainda não há dados suficientes para projeção.
                     </div>
                 ) : (
                     <>
@@ -407,15 +407,15 @@ function HeatmapPanel({ data }) {
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
-                        { label: 'Vermelho', description: 'Pior zona (precisa de aten\u00e7\u00e3o urgente).' },
-                        { label: 'Amarelo', description: 'Zona de aten\u00e7\u00e3o (monitorar e agir cedo).' },
+                        { label: 'Vermelho', description: 'Pior zona (precisa de atenção urgente).' },
+                        { label: 'Amarelo', description: 'Zona de atenção (monitorar e agir cedo).' },
                         { label: 'Verde', description: 'Boa zona (sem sinal forte de problema).' },
                     ]}
                 />
 
                 {!classes.length || !metrics.length ? (
                     <div className="rounded-[22px] border border-dashed border-border-subtle bg-bg-secondary/40 px-6 py-10 text-center text-sm text-text-secondary">
-                        Ainda n\u00e3o h\u00e1 dados suficientes para o mapa de calor.
+                        Ainda não há dados suficientes para o mapa de calor.
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -566,22 +566,22 @@ function AnalysisIntroModal({ open, analyses, onSelect, onClose }) {
 
     function getSimpleDescription(id) {
         if (id === 'overview') {
-            return 'Um resumo geral: como est\u00e3o as turmas, m\u00e9dias e sinais de aten\u00e7\u00e3o.';
+            return 'Um resumo geral: como estão as turmas, médias e sinais de atenção.';
         }
         if (id === 'by_class') {
-            return 'Veja cada turma e, ao clicar, os alunos com maior risco de evas\u00e3o.';
+            return 'Veja cada turma e, ao clicar, os alunos com maior risco de evasão.';
         }
         if (id === 'between_classes') {
             return 'Compare duas turmas: escolha Turma A e Turma B e veja qual está melhor em nota, presença e risco.';
         }
         if (id === 'by_semester') {
-            return 'Veja como os n\u00fameros mudaram de um semestre para outro.';
+            return 'Veja como os números mudaram de um semestre para outro.';
         }
         if (id === 'risk_topics') {
-            return 'Descubra quais disciplinas/turmas est\u00e3o puxando o risco para cima.';
+            return 'Descubra quais disciplinas/turmas estão puxando o risco para cima.';
         }
         if (id === 'discipline_bottlenecks') {
-            return 'Mostra disciplinas com piores combina\u00e7\u00f5es de nota, presen\u00e7a e atividade.';
+            return 'Mostra disciplinas com piores combinações de nota, presença e atividade.';
         }
         if (id === 'intervention_priorities') {
             return 'Uma lista do que atacar primeiro para reduzir risco e melhorar desempenho.';
@@ -595,9 +595,9 @@ function AnalysisIntroModal({ open, analyses, onSelect, onClose }) {
                 <div className="flex items-start justify-between gap-4">
                     <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">Central de análises</p>
-                        <h2 className="mt-2 text-xl font-semibold text-text-primary">O que voc\u00ea quer ver agora?</h2>
+                        <h2 className="mt-2 text-xl font-semibold text-text-primary">O que você quer ver agora?</h2>
                         <p className="mt-2 text-sm leading-6 text-text-secondary">
-                            Escolha uma op\u00e7\u00e3o. Se tiver d\u00favida, comece por "Vis\u00e3o geral".
+                            Escolha uma opção. Se tiver dúvida, comece por "Visão geral".
                         </p>
                     </div>
                     <Button variant="outline" onClick={onClose}>Fechar</Button>
@@ -635,14 +635,14 @@ function StudentTrendsPanel({ rows }) {
             <Card>
                 <CardHeader
                     title="Tendencia por aluno"
-                    subtitle="Quem piorou r\u00e1pido e quem está com maior risco agora."
+                    subtitle="Quem piorou rápido e quem está com maior risco agora."
                     icon={TrendingUp}
                 />
                 <div className="space-y-4">
                     <MetricsHelp
                         items={[
                             { label: 'Risco atual', description: 'Quanto maior, pior. Use para priorizar acompanhamento.' },
-                            { label: 'Mudanca de risco', description: 'Quanto o risco subiu ou desceu do primeiro para o \u00faltimo semestre.' },
+                            { label: 'Mudanca de risco', description: 'Quanto o risco subiu ou desceu do primeiro para o último semestre.' },
                         ]}
                     />
 
@@ -684,7 +684,7 @@ function StudentTrendsPanel({ rows }) {
                                             <th className="px-4">Risco atual</th>
                                             <th className="px-4">Mudou</th>
                                             <th className="px-4">Nota atual</th>
-                                            <th className="px-4">{"Presen\u00e7a"}</th>
+                                            <th className="px-4">{"Presença"}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -724,7 +724,7 @@ function RiskFactorsPanel({ rows, diagnostics }) {
         <Card>
             <CardHeader
                 title="Fatores de risco"
-                subtitle="O que mais est\u00e1 puxando o risco para cima no recorte atual."
+                subtitle="O que mais está puxando o risco para cima no recorte atual."
                 icon={Lightbulb}
             />
             <div className="space-y-4">
@@ -753,25 +753,25 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                                 tone="emerald"
                             />
                             <MetricCard
-                                title="Vari\u00e1veis finais"
+                                title="Variáveis finais"
                                 value={diagnostics?.selected_feature_count || 0}
-                                helper={`${diagnostics?.folds || 0} folds de valida\u00e7\u00e3o cruzada`}
+                                helper={`${diagnostics?.folds || 0} folds de validação cruzada`}
                                 icon={Layers3}
                                 tone="blue"
                             />
                             <MetricCard
                                 title="Outliers tratados"
                                 value={diagnostics?.preprocessing?.outliers_treated || 0}
-                                helper={`${diagnostics?.preprocessing?.missing_values_imputed || 0} imputa\u00e7\u00f5es`}
+                                helper={`${diagnostics?.preprocessing?.missing_values_imputed || 0} imputações`}
                                 icon={ShieldAlert}
                                 tone="amber"
                             />
                         </div>
 
                         <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/35 px-5 py-4 text-sm text-text-secondary">
-                            <p className="font-semibold text-text-primary">Pipeline estat\u00edstico ativo</p>
+                            <p className="font-semibold text-text-primary">Pipeline estatístico ativo</p>
                             <p className="mt-2 leading-6">
-                                {diagnostics?.target_definition || 'Modelo supervisionado com pr\u00e9-processamento, sele\u00e7\u00e3o de vari\u00e1veis e ensemble.'}
+                                {diagnostics?.target_definition || 'Modelo supervisionado com pré-processamento, seleção de variáveis e ensemble.'}
                             </p>
                             {!!techniques.length && (
                                 <div className="mt-4 flex flex-wrap gap-2">
@@ -790,7 +790,7 @@ function RiskFactorsPanel({ rows, diagnostics }) {
 
                 {!safeRows.length ? (
                     <div className="rounded-[22px] border border-dashed border-border-subtle bg-bg-secondary/40 px-6 py-10 text-center text-sm text-text-secondary">
-                        Ainda n\u00e3o h\u00e1 dados suficientes para calcular fatores.
+                        Ainda não há dados suficientes para calcular fatores.
                     </div>
                 ) : (
                     <>
@@ -817,7 +817,7 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                                 <thead>
                                     <tr className="text-left text-xs font-semibold uppercase tracking-[0.14em] text-text-tertiary">
                                         <th className="px-4">Fator</th>
-                                        <th className="px-4">Peso m\u00e9dio</th>
+                                        <th className="px-4">Peso médio</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -967,7 +967,7 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
 
     const chartComparisonData = [
         {
-            name: 'Risco Atual (M\u00e9dia)',
+            name: 'Risco Atual (Média)',
             Risco: Math.round(baselineRisk * 100),
             fill: 'url(#gradientRiskCurrent)'
         },
@@ -1004,14 +1004,14 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
             <div className="space-y-6">
                 {/* ÁREA DOS SLIDERS REATIVOS */}
                 <div className="grid gap-6 md:grid-cols-3">
-                    {/* Nota M\u00e9dia Slider */}
+                    {/* Nota Média Slider */}
                     <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-5 transition-all hover:bg-bg-secondary/40">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
                                     <BookOpen className="h-4 w-4" />
                                 </span>
-                                <span className="text-sm font-semibold text-text-primary">Nota M\u00e9dia</span>
+                                <span className="text-sm font-semibold text-text-primary">Nota Média</span>
                             </div>
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${gradeDelta > 0 ? 'bg-emerald-100 text-emerald-700' : gradeDelta < 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>
                                 {gradeDelta > 0 ? '+' : ''}{gradeDelta.toFixed(1)}
@@ -1160,7 +1160,7 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
                             <div className="bg-white/80 rounded-[20px] p-4 border border-white/60 shadow-sm backdrop-blur-sm">
                                 <p className="text-[10px] uppercase font-bold text-text-tertiary">Risco Projetado</p>
                                 <p className="mt-1 text-2xl font-black text-indigo-600">{Math.round(simulatedRisk * 100)}%</p>
-                                <p className="mt-0.5 text-[10px] text-text-secondary">M\u00e9dia geral simulada</p>
+                                <p className="mt-0.5 text-[10px] text-text-secondary">Média geral simulada</p>
                             </div>
                         </div>
 
@@ -1300,10 +1300,10 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
                     <div className="space-y-4">
                         <MetricsHelp
                             items={[
-                                { label: 'Nivel', description: 'Um resumo do risco. "Alto" e "cr\u00edtico" merecem aten\u00e7\u00e3o primeiro.' },
-                                { label: 'Risco', description: 'Probabilidade de evas\u00e3o (quanto maior, pior).'} ,
-                                { label: 'Nota', description: 'M\u00e9dia de notas do aluno nessa turma.' },
-                                { label: 'Presen\u00e7a', description: 'Percentual de presen\u00e7a (quanto maior, melhor).' },
+                                { label: 'Nivel', description: 'Um resumo do risco. "Alto" e "crítico" merecem atenção primeiro.' },
+                                { label: 'Risco', description: 'Probabilidade de evasão (quanto maior, pior).'} ,
+                                { label: 'Nota', description: 'Média de notas do aluno nessa turma.' },
+                                { label: 'Presença', description: 'Percentual de presença (quanto maior, melhor).' },
                             ]}
                         />
 
@@ -1332,7 +1332,7 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
                                     <th className="px-4">Nivel</th>
                                     <th className="px-4">Risco</th>
                                     <th className="px-4">Nota</th>
-                                    <th className="px-4">{"Presen\u00e7a"}</th>
+                                    <th className="px-4">{"Presença"}</th>
                                     <th className="px-4">Criterios</th>
                                 </tr>
                             </thead>
@@ -1491,7 +1491,7 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
                         <Users className="h-10 w-10 text-accent-blue" />
                         <p className="mt-5 text-lg font-semibold text-text-primary">Selecione duas turmas</p>
                         <p className="mt-2 max-w-sm text-sm leading-6 text-text-secondary">
-                            Escolha Turma A e Turma B para exibir o comparativo entre risco, nota, presen\u00e7a e atividade.
+                            Escolha Turma A e Turma B para exibir o comparativo entre risco, nota, presença e atividade.
                         </p>
                     </div>
                 </Card>
@@ -1676,7 +1676,7 @@ function OverviewPanel({ workspace, isCoordinator }) {
     finalVA2 = parseFloat(finalVA2.toFixed(2));
     finalVA3 = parseFloat(finalVA3.toFixed(2));
 
-    // 2. Gráfico 1 (Esquerda): Comparativo de VAs (Melhores Turmas por M\u00e9dia de Notas)
+    // 2. Gráfico 1 (Esquerda): Comparativo de VAs (Melhores Turmas por Média de Notas)
     const classes = workspace.analysis_data?.by_class || [];
     const sortedBestClasses = [...classes].sort((a, b) => (b.avg_grade || 0) - (a.avg_grade || 0)).slice(0, 5);
     const vaComparisonData = sortedBestClasses.map(c => {
@@ -2258,7 +2258,7 @@ function ClassesPanel({ title, subtitle, rows, comparison = false, onSelectRow }
                             <th className="px-4">Turma</th>
                             <th className="px-4">Semestre</th>
                             <th className="px-4">Nota</th>
-                            <th className="px-4">{"Presen\u00e7a"}</th>
+                            <th className="px-4">{"Presença"}</th>
                             <th className="px-4">Atividade</th>
                             <th className="px-4">Trabalho</th>
                             <th className="px-4">Nivel</th>
@@ -2324,7 +2324,7 @@ function SemesterPanel({ rows }) {
                             <YAxis tickLine={false} axisLine={false} fontSize={12} width={34} stroke="#64748B" />
                             <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                             <Legend />
-                            <Area type="monotone" dataKey="avg_grade" stroke="#0B57D0" strokeWidth={3} fill="url(#gradientGrade)" name="M\u00e9dia de Notas" dot={{ r: 4 }} />
+                            <Area type="monotone" dataKey="avg_grade" stroke="#0B57D0" strokeWidth={3} fill="url(#gradientGrade)" name="Média de Notas" dot={{ r: 4 }} />
                             <Area type="monotone" dataKey="avg_risk" stroke="#6A1BFF" strokeWidth={3} fill="url(#gradientRisk)" name="Risco de Evasão (%)" dot={{ r: 4 }} />
                         </AreaChart>
                     </ResponsiveContainer>
@@ -3065,13 +3065,13 @@ export function AnalysisCenter() {
                             <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
                                 <ClassesPanel
                                     title="Análise por turma"
-                                    subtitle="Clique em uma turma para ver os alunos com maior risco de evas\u00e3o."
+                                    subtitle="Clique em uma turma para ver os alunos com maior risco de evasão."
                                     rows={filteredAnalysisData?.by_class || workspace.analysis_data.by_class}
                                     onSelectRow={handleSelectClass}
                                 />
                                 <AtRiskStudentsPanel
                                     title="Alunos em risco"
-                                    subtitle="At\u00e9 quatro alunos com maior necessidade de interven\u00e7\u00e3o neste recorte."
+                                    subtitle="Até quatro alunos com maior necessidade de intervenção neste recorte."
                                     classLabel={selectedClass ? formatClassLabel(selectedClass) : ''}
                                     rows={atRiskStudents}
                                     loading={atRiskLoading}
@@ -3168,13 +3168,13 @@ export function AnalysisCenter() {
                                             .map(([key, value]) => {
                                                 const labels = {
                                                     nota: 'Nota',
-                                                    primeira_avaliacao: 'Primeira avalia\u00e7\u00e3o',
-                                                    presenca: 'Presen\u00e7a',
-                                                    queda_presenca: 'Queda de presen\u00e7a',
+                                                    primeira_avaliacao: 'Primeira avaliação',
+                                                    presenca: 'Presença',
+                                                    queda_presenca: 'Queda de presença',
                                                     atividade: 'Atividade',
                                                     oscilacao: 'Oscilacao de notas',
-                                                    aprovacao: 'Reprova\u00e7\u00e3o',
-                                                    historico: 'Hist\u00f3rico de reprova\u00e7\u00f5es',
+                                                    aprovacao: 'Reprovação',
+                                                    historico: 'Histórico de reprovações',
                                                     carga: 'Carga de disciplinas',
                                                     dificuldade_disciplina: 'Dificuldade da disciplina',
                                                     trabalho: 'Trabalho',
