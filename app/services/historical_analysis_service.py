@@ -1001,10 +1001,32 @@ class HistoricalAnalysisService:
             semesters = int(item.get("semesters") or 0)
             current_risk = float(item.get("current_risk") or 0.0)
             risk_delta = float(item.get("risk_delta") or 0.0)
-            step = risk_delta / max(1, semesters - 1) if semesters else 0.0
 
-            projected_4w = round(_clamp(current_risk + step * 0.5, 0.0, 1.0), 4)
-            projected_8w = round(_clamp(current_risk + step * 1.0, 0.0, 1.0), 4)
+            # Obter indicadores do semestre atual do aluno para projetar tendência de curto prazo
+            current_grade = float(item.get("current_grade") or 0.0)
+            current_attendance = float(item.get("current_attendance") or 0.0)
+            current_activity = float(item.get("current_activity") or 0.0)
+
+            # Se as notas, presença ou atividade forem baixas, a tendência de curto prazo é de agravamento do risco
+            grade_factor = (6.0 - current_grade) / 10.0  # de -0.4 (ótimo) a +0.6 (crítico)
+            attendance_factor = (75.0 - current_attendance) / 100.0  # de -0.25 (ótimo) a +0.75 (crítico)
+            activity_factor = (50.0 - current_activity) / 100.0  # de -0.5 (ótimo) a +0.5 (crítico)
+
+            # Cálculo de tendência de comportamento de curto prazo
+            short_term_step = (grade_factor * 0.15 + attendance_factor * 0.12 + activity_factor * 0.08)
+
+            # Combinar histórico de semestres (se houver) com tendência atual de curto prazo
+            if semesters > 1:
+                hist_step = risk_delta / (semesters - 1)
+                step = 0.4 * hist_step + 0.6 * short_term_step
+            else:
+                step = short_term_step
+
+            # Projeção de 4 semanas e 8 semanas
+            # 4 semanas representa metade do período analisado (step * 1.5)
+            # 8 semanas representa o final do período (step * 3.0)
+            projected_4w = round(_clamp(current_risk + step * 1.5, 0.0, 1.0), 4)
+            projected_8w = round(_clamp(current_risk + step * 3.0, 0.0, 1.0), 4)
 
             rows.append({
                 "id": f"projection::{item.get('id')}",
