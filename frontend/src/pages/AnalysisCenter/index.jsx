@@ -3201,34 +3201,75 @@ export function AnalysisCenter() {
                                     <tbody>
                                         {(() => {
                                             const breakdown = criteriaModalItem.risk_breakdown || {};
-                                            const totalContribution = Object.values(breakdown).reduce((sum, val) => sum + Number(val || 0), 0);
+                                            const labels = {
+                                                nota: 'Nota',
+                                                primeira_avaliacao: 'Primeira avaliação',
+                                                presenca: 'Presença',
+                                                queda_presenca: 'Queda de presença',
+                                                atividade: 'Atividade',
+                                                oscilacao: 'Oscilação de notas',
+                                                aprovacao: 'Reprovação',
+                                                historico: 'Histórico de reprovações',
+                                                carga: 'Carga de disciplinas',
+                                                dificuldade_disciplina: 'Dificuldade da disciplina',
+                                                trabalho: 'Trabalho',
+                                            };
 
-                                            return Object.entries(breakdown)
-                                                .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
-                                                .map(([key, value]) => {
-                                                    const labels = {
-                                                        nota: 'Nota',
-                                                        primeira_avaliacao: 'Primeira avaliação',
-                                                        presenca: 'Presença',
-                                                        queda_presenca: 'Queda de presença',
-                                                        atividade: 'Atividade',
-                                                        oscilacao: 'Oscilação de notas',
-                                                        aprovacao: 'Reprovação',
-                                                        historico: 'Histórico de reprovações',
-                                                        carga: 'Carga de disciplinas',
-                                                        dificuldade_disciplina: 'Dificuldade da disciplina',
-                                                        trabalho: 'Trabalho',
-                                                    };
-                                                    const relativePercentage = totalContribution > 0 
-                                                        ? (Number(value || 0) / totalContribution) * 100 
-                                                        : 0;
-                                                    return (
-                                                        <tr key={key} className="rounded-[22px] border border-border-subtle bg-white shadow-sm">
-                                                            <td className="min-w-[220px] whitespace-normal break-words rounded-l-[20px] px-5 py-5 text-sm font-semibold leading-6 text-text-primary">{labels[key] || key}</td>
-                                                            <td className="rounded-r-[20px] px-5 py-5 text-sm leading-6 text-text-secondary">{relativePercentage.toFixed(1)}%</td>
+                                            const entries = Object.entries(breakdown)
+                                                .map(([key, val]) => ({
+                                                    key,
+                                                    label: labels[key] || key,
+                                                    val: Number(val || 0)
+                                                }))
+                                                .filter(item => item.val > 0);
+
+                                            const totalContribution = entries.reduce((sum, item) => sum + item.val, 0);
+
+                                            if (totalContribution === 0) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan="2" className="px-5 py-8 text-center text-sm text-text-secondary rounded-[20px] border border-border-subtle bg-white">
+                                                            Nenhum fator de risco ativo para este aluno.
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+
+                                            // Calcular percentagens e arredondar para 1 casa decimal
+                                            let items = entries.map(item => {
+                                                const rawPct = (item.val / totalContribution) * 100;
+                                                return {
+                                                    ...item,
+                                                    pct: Math.round(rawPct * 10) / 10
+                                                };
+                                            });
+
+                                            // Ajustar arredondamentos para a soma fechar exatamente em 100%
+                                            const sumPct = items.reduce((sum, item) => sum + item.pct, 0);
+                                            const diff = 100.0 - sumPct;
+                                            if (items.length > 0 && Math.abs(diff) > 0.01) {
+                                                // Encontrar o item de maior valor para absorver a diferença de arredondamento
+                                                items.sort((a, b) => b.val - a.val);
+                                                items[0].pct = Number((items[0].pct + diff).toFixed(1));
+                                            }
+
+                                            // Ordenar do maior para o menor peso
+                                            items.sort((a, b) => b.pct - a.pct);
+
+                                            return (
+                                                <>
+                                                    {items.map((item) => (
+                                                        <tr key={item.key} className="rounded-[22px] border border-border-subtle bg-white shadow-sm">
+                                                            <td className="min-w-[220px] whitespace-normal break-words rounded-l-[20px] px-5 py-5 text-sm font-semibold leading-6 text-text-primary">{item.label}</td>
+                                                            <td className="rounded-r-[20px] px-5 py-5 text-sm leading-6 text-text-secondary">{item.pct.toFixed(1)}%</td>
                                                         </tr>
-                                                    );
-                                                });
+                                                    ))}
+                                                    <tr className="rounded-[22px] border border-border-subtle bg-bg-secondary/40 font-semibold shadow-sm">
+                                                        <td className="min-w-[220px] rounded-l-[20px] px-5 py-4 text-sm text-text-primary">Total proporcional</td>
+                                                        <td className="rounded-r-[20px] px-5 py-4 text-sm text-text-primary">100.0%</td>
+                                                    </tr>
+                                                </>
+                                            );
                                         })()}
                                     </tbody>
                                 </table>
