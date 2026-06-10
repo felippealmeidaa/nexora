@@ -400,8 +400,8 @@ function HeatmapPanel({ data }) {
     return (
         <Card>
             <CardHeader
-                title="Mapa de Calor Preditivo"
-                subtitle="Matriz de criticidade futura projetando níveis de risco estimado por turma."
+                title="Mapa de Risco"
+                subtitle="Matriz de criticidade mostrando o nível de risco estimado de cada turma."
                 icon={BarChart3}
             />
             <div className="space-y-4">
@@ -844,8 +844,8 @@ function EarlyAlertsPanel({ rows, onSelectStudent, onViewCriteria }) {
     return (
         <Card>
             <CardHeader
-                title="Alertas precoces"
-                subtitle="Sinais simples para agir cedo e reduzir evas\u00e3o."
+                title="Alertas rápidos"
+                subtitle="Sinais simples para agir cedo e reduzir evasão."
                 icon={ShieldAlert}
             />
             <div className="space-y-4">
@@ -1498,7 +1498,7 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
             ) : (
                 <Card>
                     <CardHeader
-                        title="Comparativo Preditivo de Turmas"
+                        title="Comparar Turmas"
                         subtitle={`${classA.label} vs ${classB.label}`}
                         icon={BarChart3}
                     />
@@ -2359,8 +2359,8 @@ function RiskTopicsPanel({ rows }) {
         <div className="space-y-4">
             <Card>
                 <CardHeader 
-                    title="Tópicos de Alerta Preditivo" 
-                    subtitle="Cruzamento de indicadores indicando focos de atenção futuros e quedas estimadas de rendimento."
+                    title="Tópicos de Alerta" 
+                    subtitle="Cruzamento de indicadores que mostram os principais focos de atenção e queda de rendimento."
                     icon={BrainCircuit}
                 />
             </Card>
@@ -2393,8 +2393,8 @@ function DisciplinePanel({ rows }) {
         <div className="space-y-4">
             <Card>
                 <CardHeader 
-                    title="Gargalos Preditivos por Disciplina" 
-                    subtitle="Identificação de componentes que apresentam tendência de reprovação e quedas severas de rendimento."
+                    title="Dificuldades por Disciplina" 
+                    subtitle="Disciplinas com maior taxa ou previsão de notas baixas e reprovações."
                     icon={BookOpen}
                 />
             </Card>
@@ -3085,8 +3085,8 @@ export function AnalysisCenter() {
                         )}
                         {selectedAnalysis === 'between_classes' && (
                             <BetweenClassesPanel
-                                title="Comparativo Preditivo entre Turmas"
-                                subtitle="Selecione duas turmas do seu recorte para simular e comparar projeções."
+                                title="Comparar Turmas"
+                                subtitle="Selecione duas turmas para ver a comparação de desempenho."
                                 rows={filteredAnalysisData?.between_classes || workspace.analysis_data.between_classes}
                             />
                         )}

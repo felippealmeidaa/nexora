@@ -526,62 +526,62 @@ class HistoricalAnalysisService:
             {
                 "id": "by_class",
                 "label": "Análise por Turma",
-                "description": "Leitura interna de cada turma com risco, nota, presenca, trabalho e engajamento.",
+                "description": "Notas, presença e engajamento detalhados de cada turma.",
             },
             {
                 "id": "discipline_risk",
-                "label": "Previsão de Risco por Disciplina",
-                "description": "Projeta quais disciplinas terao maior taxa de risco de evasao e reprovacao.",
+                "label": "Risco por Disciplina",
+                "description": "Mostra quais disciplinas têm maior risco de reprovação ou evasão.",
             },
             {
                 "id": "between_classes",
-                "label": "Comparativo Preditivo de Turmas",
-                "description": "Compara tendencias e riscos de desfecho projetados entre diferentes turmas.",
+                "label": "Comparar Turmas",
+                "description": "Compara as notas e a frequência projetada entre turmas diferentes.",
             },
             {
                 "id": "by_semester",
                 "label": "Análise por Semestre",
-                "description": "Evolucao de risco, notas, presenca e aprovacao ao longo dos periodos.",
+                "description": "Acompanha a evolução de notas e presença ao longo dos semestres.",
             },
             {
                 "id": "risk_topics",
-                "label": "Tópicos de Alerta Preditivo",
-                "description": "Antecipa focos de atencao combinando projecao de queda em notas e frequencias.",
+                "label": "Tópicos de Alerta",
+                "description": "Focos de atenção baseados em queda de notas ou faltas dos alunos.",
             },
             {
                 "id": "student_trends",
                 "label": "Análise por Aluno",
-                "description": "Evolucao de risco, nota e presenca para encontrar quem piorou rapido.",
+                "description": "Acompanha o desempenho do aluno para identificar quem precisa de ajuda rápida.",
             },
             {
                 "id": "risk_factors",
                 "label": "Fatores de Risco",
-                "description": "Explica o que mais esta puxando o risco para cima (nota, presenca, atividade, etc.).",
+                "description": "Mostra o que está gerando mais risco (notas baixas, faltas, etc.).",
             },
             {
                 "id": "early_alerts",
-                "label": "Alertas Precoces",
-                "description": "Alertas simples para agir cedo: falta, baixa atividade, queda de nota e risco alto.",
+                "label": "Alertas Rápidos",
+                "description": "Alertas imediatos sobre faltas, notas baixas ou pouca atividade.",
             },
             {
                 "id": "intervention_simulator",
-                "label": "Simulador de Intervenção",
-                "description": "Simula cenarios: se melhorar presenca/atividade/nota, quanto o risco pode cair.",
+                "label": "Simulador de Melhorias",
+                "description": "Simule como a melhora em notas ou presença ajudaria a reduzir o risco do aluno.",
             },
             {
                 "id": "student_segments",
-                "label": "Segmentos de Alunos",
-                "description": "Agrupa perfis (ex.: nota baixa, presenca baixa) para orientar intervencoes diferentes.",
+                "label": "Grupos de Alunos",
+                "description": "Agrupa os alunos por perfil (ex: notas baixas ou muitas faltas) para ações focadas.",
             },
             {
                 "id": "risk_projection",
-                "label": "Projeção de Risco",
-                "description": "Projecao simples do risco futuro (tendencia), para agir antes de virar critico.",
+                "label": "Previsão de Risco",
+                "description": "Estima a tendência de risco futuro do aluno para agir antes que se torne crítico.",
             },
             {
                 "id": "heatmap",
-                "label": "Mapa de Calor Preditivo",
-                "description": "Matriz de criticidade futura mostrando indicadores de risco projetado por turma.",
+                "label": "Mapa de Risco",
+                "description": "Tabela visual mostrando a situação de risco projetada para as turmas.",
             },
         ]
 
@@ -589,13 +589,13 @@ class HistoricalAnalysisService:
             base.extend([
                 {
                     "id": "discipline_bottlenecks",
-                    "label": "Gargalos Preditivos por Disciplina",
-                    "description": "Identifica tendencias de disciplinas recorrentes com pior projecao de notas.",
+                    "label": "Dificuldades por Disciplina",
+                    "description": "Identifica disciplinas críticas com maior histórico ou previsão de notas baixas.",
                 },
                 {
                     "id": "intervention_priorities",
-                    "label": "Prioridades",
-                    "description": "Fila de intervencao com foco nas acoes mais urgentes do curso.",
+                    "label": "Lista de Prioridades",
+                    "description": "Ordem de atendimento com foco nas ações mais urgentes do curso.",
                 },
             ])
 
