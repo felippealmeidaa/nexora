@@ -17,6 +17,7 @@ export function Badge({
     variant = 'neutral',
     dot = false,
     className,
+    ...props
 }) {
     return (
         <span
@@ -25,6 +26,7 @@ export function Badge({
                 variantStyles[variant],
                 className,
             )}
+            {...props}
         >
             {dot && (
                 <span className={clsx(

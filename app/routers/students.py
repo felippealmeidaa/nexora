@@ -28,6 +28,11 @@ from app.security.secrets import decrypt_secret, encrypt_secret
 from app.services.analytics_service import AnalyticsService
 from app.utils.attendance import normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
 from app.utils.subject_name import normalize_subject_key
+from app.services.gemini_service import gemini_service
+from pydantic import BaseModel
+
+class DraftAlertRequest(BaseModel):
+    channel: str = "email"
 
 logger = logging.getLogger(__name__)
 
@@ -531,33 +536,62 @@ def get_student_detail(
             entry = grades_by_course.setdefault(course_name, {
                 "disciplina": course_name,
                 "va1": None,
+                "va1_projected": False,
                 "va2": None,
+                "va2_projected": False,
                 "va3": None,
+                "va3_projected": False,
                 "media": None,
+                "media_projected": False,
                 "situacao": "Cursando",
+                "is_projected": False,
             })
+            is_proj = "PROJETADA" in desc or "✨" in desc
             if "VA1" in desc or "P1" in desc:
                 entry["va1"] = val
+                entry["va1_projected"] = is_proj
+                if is_proj:
+                    entry["is_projected"] = True
             elif "VA2" in desc or "P2" in desc:
                 entry["va2"] = val
+                entry["va2_projected"] = is_proj
+                if is_proj:
+                    entry["is_projected"] = True
             elif "VA3" in desc or "P3" in desc:
                 entry["va3"] = val
+                entry["va3_projected"] = is_proj
+                if is_proj:
+                    entry["is_projected"] = True
             elif "MEDIA" in desc or "MÉDIA" in desc or "FINAL" in desc:
                 entry["media"] = val
+                entry["media_projected"] = is_proj
+                if is_proj:
+                    entry["is_projected"] = True
             else:
                 if entry["va1"] is None:
                     entry["va1"] = val
+                    entry["va1_projected"] = is_proj
                 elif entry["va2"] is None:
                     entry["va2"] = val
+                    entry["va2_projected"] = is_proj
                 elif entry["va3"] is None:
                     entry["va3"] = val
+                    entry["va3_projected"] = is_proj
+                if is_proj:
+                    entry["is_projected"] = True
         for entry in grades_by_course.values():
             if entry["media"] is None:
                 vals = [v for v in [entry["va1"], entry["va2"], entry["va3"]] if v is not None]
                 if vals:
                     entry["media"] = round(sum(vals) / len(vals), 2)
+                    entry["media_projected"] = entry["va1_projected"] or entry["va2_projected"] or entry["va3_projected"]
+                    if entry["media_projected"]:
+                        entry["is_projected"] = True
             if entry["media"] is not None:
-                entry["situacao"] = "Aprovado" if entry["media"] >= 6.0 else "Reprovado"
+                if entry.get("is_projected"):
+                    entry["situacao"] = "Aprovação Provável" if entry["media"] >= 6.0 else "Reprovação Provável (Nota)"
+                else:
+                    entry["situacao"] = "Aprovado" if entry["media"] >= 6.0 else "Reprovado"
         grades = list(grades_by_course.values())
 
     # Frequência scraped
@@ -714,6 +748,76 @@ def get_student_detail(
         "subjects": subjects,
         "schedule": schedule,
     }
+
+
+@router.get("/{student_id}/insights")
+async def get_student_insights(
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera insights do estudante via Gemini (ou fallback) para o professor/coordenador."""
+    if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN, UserRole.VIEWER):
+        raise HTTPException(status_code=403, detail="Acesso restrito a professor, coordenacao e administracao")
+
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Aluno não encontrado")
+
+    if not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
+
+    detail_data = get_student_detail(student_id=student_id, db=db, current_user=current_user)
+    
+    analytics_data = detail_data.get("analytics") or {}
+    kpis = analytics_data.get("kpis") or {}
+    history = analytics_data.get("history") or []
+    recommendations = analytics_data.get("recommendations") or []
+    grades = detail_data.get("grades") or []
+
+    insights = await gemini_service.analyze_student(
+        student_name=student.name,
+        course=student.course_name,
+        kpis=kpis,
+        history=history,
+        recommendations=recommendations,
+        current_grades=grades
+    )
+    return {"insights": insights}
+
+
+@router.post("/{student_id}/draft-alert")
+async def generate_draft_alert(
+    student_id: int,
+    payload: DraftAlertRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera um rascunho de mensagem preventiva para o aluno sob risco."""
+    if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN):
+        raise HTTPException(status_code=403, detail="Acesso restrito a professor, coordenacao e administracao")
+
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Aluno não encontrado")
+
+    if not can_user_access_student(db, current_user, student):
+        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
+
+    detail_data = get_student_detail(student_id=student_id, db=db, current_user=current_user)
+    
+    analytics_data = detail_data.get("analytics") or {}
+    kpis = analytics_data.get("kpis") or {}
+    grades = detail_data.get("grades") or []
+
+    draft = await gemini_service.generate_student_draft_alert(
+        student_name=student.name,
+        course_name=student.course_name or "Curso Acadêmico",
+        kpis=kpis,
+        current_grades=grades,
+        channel=payload.channel
+    )
+    return {"draft": draft}
 
 
 @router.post("/", response_model=StudentResponse, status_code=201)

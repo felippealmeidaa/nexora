@@ -53,7 +53,8 @@ def _generate_fallback_ai_analysis_markdown(
     kpis: dict,
     top_5_risk: list,
     critical_subject_name: str,
-    critical_subject_reason: str
+    critical_subject_reason: str,
+    dist_stats: dict = None
 ) -> str:
     """Gera um relatório markdown offline com as estatísticas reais da planilha."""
 
@@ -80,7 +81,32 @@ def _generate_fallback_ai_analysis_markdown(
         attendance_bullet = f"*   **Foco Exclusivo em Notas**: Como esta base histórica não registrou índices de frequência (presença) dos alunos, as análises e diagnósticos pedagógicos se concentram inteiramente no aproveitamento das notas e avaliações acadêmicas."
         attendance_text = "Não identificada (--%)"
 
-    markdown = f"""# 📊 ANÁLISE DE IA: {kpis['filename']}
+    # Gerar tabela de distribuição preventiva e projeções
+    dist_section = ""
+    if dist_stats:
+        total = dist_stats.get("total", 1)
+        aprovados_pct = round((dist_stats.get("aprovados", 0) / total) * 100.0, 1) if total > 0 else 0.0
+        risco_nota_pct = round((dist_stats.get("risco_nota", 0) / total) * 100.0, 1) if total > 0 else 0.0
+        risco_falta_pct = round((dist_stats.get("risco_falta", 0) / total) * 100.0, 1) if total > 0 else 0.0
+        risco_ambos_pct = round((dist_stats.get("risco_ambos", 0) / total) * 100.0, 1) if total > 0 else 0.0
+
+        dist_section = f"""
+### 📊 Distribuição Preventiva Estimada da Turma
+| Situação Preventiva | Quantidade de Alunos | Percentual |
+| :--- | :---: | :---: |
+| **Aprovação Provável** | {dist_stats.get("aprovados", 0)} | {aprovados_pct}% |
+| **Risco por Nota** | {dist_stats.get("risco_nota", 0)} | {risco_nota_pct}% |
+| **Risco por Falta** | {dist_stats.get("risco_falta", 0)} | {risco_falta_pct}% |
+| **Risco Crítico (Ambos)** | {dist_stats.get("risco_ambos", 0)} | {risco_ambos_pct}% |
+| **Total Analisado** | **{total}** | **100%** |
+
+*   🔮 **Taxa de Reprovação Final Projetada (Sem Intervenção)**: **{dist_stats.get("reprovacao_projetada_pct", 0.0)}%** da turma.
+*   📉 **Gargalo de Comportamento**: **{dist_stats.get("correlacao_falta_nota_pct", 0.0)}%** dos alunos com frequência abaixo de 75% também apresentam média de notas inferior a 6.0.
+"""
+
+    markdown = f"""# 💡 Plano de Intervenção Pedagógica: {critical_subject_name} ({kpis['course_name']})
+
+{dist_section}
 
 ## 1. Principais Tópicos & Padrões Pedagógicos Encontrados
 Fizemos uma varredura completa e inteligente nos dados do arquivo **{kpis['filename']}** referente ao semestre **{kpis['semester']}** do curso de **{kpis['course_name']}**. Nossas análises locais apontam os seguintes padrões estruturais:
@@ -118,5 +144,25 @@ Para apoiar o corpo docente na mediação pedagógica eficaz, recomendamos as se
 1.  **Kahoot! ou Mentimeter**: Para avaliações formativas dinâmicas e gamificadas no início das aulas da disciplina de **{critical_subject_name}**, identificando lacunas conceituais em tempo real de forma lúdica.
 2.  **Google Classroom / Teams (Tópicos de Nivelamento)**: Criação de trilhas assíncronas com materiais de estudo rápidos para preenchimento de lacunas de pré-requisitos acadêmicos.
 3.  **Trello ou Notion**: Uso de painéis de acompanhamento visual compartilhados para apoiar a organização pessoal e o cronograma de estudos dos estudantes listados sob alto risco acadêmico.
+
+## 6. Template de Engajamento Coletivo (Mensagem do Professor)
+O professor pode enviar estas mensagens para os alunos em situação de risco identificados:
+
+### Opção 1: Mensagem Curta para WhatsApp/Notificação
+"Olá! Aqui é o professor da disciplina {critical_subject_name}. Notei que suas notas/presenças parciais estão sob monitoramento de risco. Vamos agendar uma mentoria rápida de nivelamento para recuperar o seu desempenho acadêmico? Conte comigo!"
+
+### Opção 2: E-mail de Apoio Pedagógico Estruturado
+"Prezado(a) aluno(a),
+
+Espero que esteja bem.
+
+Estou acompanhando as estatísticas do semestre atual e gostaria de convidá-lo(a) para participar de um plantão de nivelamento e monitoria acadêmica direcionada para a nossa disciplina de {critical_subject_name}.
+
+Temos avaliações importantes pela frente e ainda há tempo hábil para reverter esse cenário e garantir a sua aprovação.
+
+Entre em contato comigo ou compareça ao plantão semanal de monitoria no repositório digital de estudos.
+
+Atenciosamente,
+Seu Professor"
 """
     return markdown

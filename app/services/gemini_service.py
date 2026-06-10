@@ -235,6 +235,7 @@ Gere no MÁXIMO 2 itens por categoria. Priorize o essencial."""
         kpis: Dict[str, Any],
         history: List[Dict[str, Any]],
         recommendations: List[Dict[str, Any]],
+        current_grades: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Monta prompt personalizado para análise de um único aluno."""
 
@@ -255,6 +256,19 @@ Gere no MÁXIMO 2 itens por categoria. Priorize o essencial."""
         risk_score = kpis.get('risk_score', 0)
         risk_label = kpis.get('risk_level', 'low')
 
+        # Formatar notas do semestre atual
+        current_grades_text = ""
+        if current_grades:
+            current_grades_text = "\n".join([
+                f"  - {g['disciplina']}: VA1={g.get('va1', 'N/A')}{' (Projetada ✨)' if g.get('va1_projected') else ''}, "
+                f"VA2={g.get('va2', 'N/A')}{' (Projetada ✨)' if g.get('va2_projected') else ''}, "
+                f"VA3={g.get('va3', 'N/A')}{' (Projetada ✨)' if g.get('va3_projected') else ''}, "
+                f"Média Projetada/Final={g.get('media', 'N/A')}, Situação={g.get('situacao', 'N/A')}"
+                for g in current_grades
+            ])
+        else:
+            current_grades_text = "  Nenhuma nota lançada no semestre atual."
+
         prompt = f"""Você é um mentor acadêmico pessoal e empático. Analise o perfil abaixo de um 
 aluno universitário e gere conselhos PERSONALIZADOS, práticos e motivadores em português brasileiro.
 
@@ -270,7 +284,10 @@ aluno universitário e gere conselhos PERSONALIZADOS, práticos e motivadores em
   - Tendência de Notas: {kpis.get('grade_trend', 0)} (positivo = melhorando)
   - Score de Risco: {risk_score} ({risk_label})
 
-📚 DISCIPLINAS ATUAIS:
+📚 DISCIPLINAS E NOTAS DO SEMESTRE ATUAL (Contém Projeções IA se marcado com ✨):
+{current_grades_text}
+
+📚 DISCIPLINAS DE SEMESTRES ANTERIORES:
 {history_text}
 
 📋 ALERTAS DO SISTEMA:
@@ -281,6 +298,7 @@ aluno universitário e gere conselhos PERSONALIZADOS, práticos e motivadores em
 IMPORTANTE: Você está falando DIRETAMENTE com o aluno. Use "você" e seja encorajador.
 Se o GPA for 0.0 e as disciplinas estiverem "Em andamento", isso significa que o semestre 
 acabou de começar e as notas ainda não foram lançadas — NÃO trate como problema.
+Se houver disciplinas do semestre atual com notas ou médias projetadas (marcadas com ✨) que indiquem reprovação provável (média abaixo de 6.0), priorize a geração de dicas de estudo e alertas direcionados especificamente a essas disciplinas críticas para ajudar o aluno a reverter a situação pedagógica antes do final do semestre.
 Foque em dicas práticas para o semestre atual.
 
 Gere uma análise em formato JSON com a estrutura abaixo.
@@ -322,19 +340,39 @@ Gere no MÁXIMO 2 itens por categoria. Seja CONCISO e ESPECÍFICO ao contexto do
         kpis: Dict[str, Any],
         history: List[Dict[str, Any]],
         recommendations: List[Dict[str, Any]],
+        current_grades: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Gera insights personalizados para um aluno individual usando o Gemini.
         """
         if not self._available:
+            critical_courses = []
+            if current_grades:
+                for g in current_grades:
+                    media_val = g.get("media")
+                    if media_val is not None and float(media_val) < 6.0:
+                        critical_courses.append(g["disciplina"])
+            
+            summary = f"Análise pedagógica offline de {student_name}. O estudante apresenta notas e frequência sob monitoramento estatístico na base de dados."
+            if critical_courses:
+                summary += f" Atenção especial é requerida nas disciplinas: {', '.join(critical_courses)}."
+
+            study_tips = [
+                "Organizar cronograma de revisão de 15 minutos pós-aula para fixação imediata.",
+                "Utilizar os plantões de monitoria acadêmica para consolidar conteúdos mais complexos."
+            ]
+            if critical_courses:
+                study_tips.insert(0, f"Focar em revisões intensivas e exercícios práticos específicos para a disciplina {critical_courses[0]}.")
+
+            alerts = ["Atenção ao nível de engajamento continuado na disciplina", "Monitorar faltas recorrentes para evitar perda de conceitos-chave"]
+            if critical_courses:
+                alerts.insert(0, f"Risco de reprovação projetado em {critical_courses[0]} (média abaixo de 6.0).")
+
             return {
-                "summary": f"Análise pedagógica offline de {student_name}. O estudante apresenta notas e frequência sob monitoramento estatístico na base de dados.",
+                "summary": summary,
                 "strengths": ["Participação em dinâmicas e atividades práticas", "Pontualidade e entrega consistente de avaliações formativas"],
-                "alerts": ["Atenção ao nível de engajamento continuado na disciplina", "Monitorar faltas recorrentes para evitar perda de conceitos-chave"],
-                "study_tips": [
-                    "Organizar cronograma de revisão de 15 minutos pós-aula para fixação imediata.",
-                    "Utilizar os plantões de monitoria acadêmica para consolidar conteúdos mais complexos."
-                ],
+                "alerts": alerts[:2],
+                "study_tips": study_tips[:2],
                 "motivation": f"Foque na constância dos seus estudos, {student_name.split()[0]}! Pequenos esforços estruturados diariamente geram excelentes resultados acumulados.",
                 "available": True,
                 "offline_fallback": True,
@@ -343,7 +381,7 @@ Gere no MÁXIMO 2 itens por categoria. Seja CONCISO e ESPECÍFICO ao contexto do
 
         try:
             prompt = self._build_student_prompt(
-                student_name, course, kpis, history, recommendations
+                student_name, course, kpis, history, recommendations, current_grades
             )
 
             import asyncio
@@ -393,36 +431,148 @@ Gere no MÁXIMO 2 itens por categoria. Seja CONCISO e ESPECÍFICO ao contexto do
 
             return result
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Erro ao parsear resposta do Gemini (student): {e}")
-            return {
-                "summary": f"Análise pedagógica offline de {student_name}. O estudante apresenta notas e frequência sob monitoramento estatístico na base de dados.",
-                "strengths": ["Participação em dinâmicas e atividades práticas", "Pontualidade e entrega consistente de avaliações formativas"],
-                "alerts": ["Atenção ao nível de engajamento continuado na disciplina", "Monitorar faltas recorrentes para evitar perda de conceitos-chave"],
-                "study_tips": [
-                    "Organizar cronograma de revisão de 15 minutos pós-aula para fixação imediata.",
-                    "Utilizar os plantões de monitoria acadêmica para consolidar conteúdos mais complexos."
-                ],
-                "motivation": f"Foque na constância dos seus estudos, {student_name.split()[0]}! Pequenos esforços estruturados diariamente geram excelentes resultados acumulados.",
-                "available": True,
-                "offline_fallback": True,
-                "model": "NEXORA Analítico Offline"
-            }
         except Exception as e:
             logger.error(f"Erro na chamada ao Gemini (student): {e}", exc_info=True)
-            return {
-                "summary": f"Análise pedagógica offline de {student_name}. O estudante apresenta notas e frequência sob monitoramento estatístico na base de dados.",
-                "strengths": ["Participação em dinâmicas e atividades práticas", "Pontualidade e entrega consistente de avaliações formativas"],
-                "alerts": ["Atenção ao nível de engajamento continuado na disciplina", "Monitorar faltas recorrentes para evitar perda de conceitos-chave"],
-                "study_tips": [
-                    "Organizar cronograma de revisão de 15 minutos pós-aula para fixação imediata.",
-                    "Utilizar os plantões de monitoria acadêmica para consolidar conteúdos mais complexos."
-                ],
-                "motivation": f"Foque na constância dos seus estudos, {student_name.split()[0]}! Pequenos esforços estruturados diariamente geram excelentes resultados acumulados.",
-                "available": True,
-                "offline_fallback": True,
-                "model": "NEXORA Analítico Offline"
-            }
+            # Reaproveitar fallback local em caso de erro
+            self._available = False
+            fallback_res = await self.analyze_student(student_name, course, kpis, history, recommendations, current_grades)
+            self._available = True
+            return fallback_res
+
+    async def analyze_student_overview(self, overview: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Gera insights pedagógicos a partir do overview de um estudante.
+        Método chamado pela rota /me/ai-insights de alunos.
+        """
+        student_info = overview.get("student_info", {})
+        student_name = student_info.get("name", "Estudante")
+        course = student_info.get("course_name", "Curso")
+        kpis = overview.get("kpis", {})
+        history = overview.get("history", [])
+        recommendations = overview.get("recommendations", [])
+        
+        return await self.analyze_student(
+            student_name=student_name,
+            course=course,
+            kpis=kpis,
+            history=history,
+            recommendations=recommendations,
+            current_grades=None
+        )
+
+    async def generate_student_draft_alert(
+        self,
+        student_name: str,
+        course_name: str,
+        kpis: Dict[str, Any],
+        current_grades: List[Dict[str, Any]],
+        channel: str = "email",
+    ) -> str:
+        """
+        Gera um rascunho de mensagem preventiva personalizada para o aluno.
+        """
+        channel_label = "E-mail" if channel == "email" else "WhatsApp"
+        
+        # Identificar disciplinas críticas
+        critical_courses = []
+        for g in (current_grades or []):
+            media_val = g.get("media")
+            if media_val is not None and float(media_val) < 6.0:
+                critical_courses.append(f"{g['disciplina']} (Média Projetada: {float(media_val):.1f})")
+
+        if not self._available:
+            first_name = student_name.split()[0]
+            if channel == "whatsapp":
+                if critical_courses:
+                    courses_text = " e ".join(critical_courses)
+                    return (
+                        f"Olá, {first_name}! Aqui é o seu professor. Notei que, com base nas notas parciais lançadas, "
+                        f"há uma projeção de risco para a média final em {courses_text}. "
+                        f"Ainda temos tempo e provas pela frente para reverter isso! "
+                        f"Gostaria de agendar um momento nesta semana para conversarmos sobre um plano de estudos focado? "
+                        f"Conte comigo para te ajudar."
+                    )
+                else:
+                    return (
+                        f"Olá, {first_name}! Aqui é o seu professor. Passando para parabenizar pelo seu rendimento "
+                        f"e engajamento no semestre! Suas projeções de desempenho estão excelentes. Continue assim!"
+                    )
+            else:
+                # E-mail
+                if critical_courses:
+                    courses_text = ", ".join(critical_courses)
+                    return (
+                        f"Prezado(a) {student_name},\n\n"
+                        f"Espero que esta mensagem o(a) encontre bem.\n\n"
+                        f"Gostaria de compartilhar uma análise preventiva sobre o seu desempenho acadêmico no semestre atual. "
+                        f"Com base nas avaliações parciais já realizadas, nosso sistema sinalizou uma projeção de risco para a média final em: {courses_text}.\n\n"
+                        f"Lembro que essas são apenas projeções matemáticas estimadas para as avaliações futuras, "
+                        f"o que significa que ainda há tempo hábil de mudarmos esse cenário pedagógico com as próximas provas e atividades.\n\n"
+                        f"Recomendo fortemente que você:\n"
+                        f"1. Participe dos plantões de monitoria acadêmica da instituição;\n"
+                        f"2. Estabeleça um plano de revisão semanal dos tópicos já ministrados;\n"
+                        f"3. Venha conversar comigo no horário de atendimento ao aluno para sanarmos dúvidas específicas.\n\n"
+                        f"Estou à disposição para apoiá-lo(a) em sua trajetória.\n\n"
+                        f"Atenciosamente,\n"
+                        f"Seu Professor"
+                    )
+                else:
+                    return (
+                        f"Prezado(a) {student_name},\n\n"
+                        f"Espero que esta mensagem o(a) encontre bem.\n\n"
+                        f"Passando para parabenizar pelo seu rendimento acadêmico consistente e engajamento no curso. "
+                        f"Suas projeções de notas e frequência estão consolidadas em nível seguro.\n\n"
+                        f"Continue com essa mesma constância e dedicação nos estudos até o final do período.\n\n"
+                        f"Atenciosamente,\n"
+                        f"Seu Professor"
+                    )
+
+        # Prompt online para o Gemini
+        grades_summary = ""
+        if current_grades:
+            grades_summary = "\n".join([
+                f"  - {g['disciplina']}: VA1={g.get('va1', 'N/A')}, VA2={g.get('va2', 'N/A')}, VA3={g.get('va3', 'N/A')} (Projetada={g.get('va3_projected', False)}), Média={g.get('media', 'N/A')}, Situação={g.get('situacao', 'N/A')}"
+                for g in current_grades
+            ])
+
+        prompt = f"""Você é um mentor acadêmico inteligente e empático na plataforma SIMA.
+Sua tarefa é redigir um rascunho de mensagem preventiva personalizada do professor para o estudante {student_name}, que está matriculado no curso {course_name}.
+
+DADOS DE TRAJETÓRIA DO ESTUDANTE:
+- GPA Geral: {kpis.get('gpa', 0)}
+- Taxa de Presença: {kpis.get('attendance_rate', 0)}%
+- Disciplinas Atuais e Notas:
+{grades_summary or "Nenhuma nota lançada no momento."}
+
+INSTRUÇÕES PARA A MENSAGEM:
+1. Canal solicitado: {channel_label} (Ajuste o tom e o tamanho apropriados: WhatsApp deve ser mais curto e direto; E-mail deve ter assunto e ser um pouco mais formal, mas ainda muito empático).
+2. Se houver alguma disciplina com média projetada de reprovação (abaixo de 6.0), aborde isso com empatia e cuidado. Destaque que a nota final é apenas uma PROJEÇÃO preditiva para o futuro (VA3) baseada em dados, e que o aluno ainda possui plena oportunidade de recuperar o desempenho com ações corretivas.
+3. Proponha um direcionamento pedagógico útil (ex: reforço de estudos na disciplina crítica, participar de monitorias, procurar o professor).
+4. Linguagem inteiramente em PORTUGUÊS DO BRASIL.
+5. Retorne APENAS o texto pronto do rascunho. Não use aspas adicionais no início/fim, não use marcas de markdown adicionais como ```. Retorne o texto cru para ser copiado diretamente.
+"""
+
+        try:
+            import asyncio
+            response = await asyncio.to_thread(
+                self._model.generate_content,
+                prompt,
+                generation_config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 1548,
+                },
+            )
+            text = response.text.strip()
+            # Remover possíveis blocos de marcação que a IA insiste em colocar
+            text = re.sub(r"^```(?:markdown|text)?\n", "", text)
+            text = re.sub(r"\n```$", "", text)
+            return text.strip() or "Não foi possível gerar o rascunho online."
+        except Exception as e:
+            logger.error(f"Erro ao gerar alerta preventivo online no Gemini (usando fallback): {e}")
+            self._available = False
+            fallback_res = await self.generate_student_draft_alert(student_name, course_name, kpis, current_grades, channel)
+            self._available = True
+            return fallback_res
 
     def _analyze_offline(self, kpis: Dict[str, Any], risk_students: List[Dict[str, Any]]) -> Dict[str, Any]:
         patterns = []

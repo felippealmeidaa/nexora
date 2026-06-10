@@ -219,6 +219,8 @@ def _predict_and_enrich_incomplete_spreadsheet(
 
         # Predição de frequência final projetada
         curr_att = r.get("attendance")
+        if curr_att is not None:
+            g["Frequencia Real"] = curr_att
         predicted_att = predictor.predict_final_attendance(curr_att, hist_att)
         r["attendance"] = predicted_att
 
@@ -485,6 +487,7 @@ def get_historical_records(
     semester: Optional[str] = Query(None),
     course_name: Optional[str] = Query(None),
     subject: Optional[str] = Query(None),
+    spreadsheet_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -496,6 +499,7 @@ def get_historical_records(
         semester=semester,
         course_name=course_name,
         subject=subject,
+        spreadsheet_id=spreadsheet_id,
     )
 
     total_count = len(scoped_records)
@@ -1131,13 +1135,79 @@ async def chat_about_spreadsheet(
         )
     records_summary = "\n".join(lines[:150])
 
+    # Calcular distribuição preventiva para enriquecer o contexto do chat
+    total_students = len(records)
+    attendance_values = []
+    for r in records:
+        if r.attendance is not None:
+            try:
+                attendance_values.append(float(r.attendance))
+            except (ValueError, TypeError):
+                pass
+    has_attendance = len(attendance_values) > 0
+
+    aprovados = 0
+    risco_nota = 0
+    risco_falta = 0
+    risco_ambos = 0
+    presenca_baixa_count = 0
+    presenca_baixa_nota_baixa_count = 0
+
+    for r in records:
+        grade_average, _ = _extract_numeric_grade_summary(r.grades or {})
+        g_float = None
+        if grade_average is not None:
+            try:
+                g_float = float(grade_average)
+            except (ValueError, TypeError):
+                pass
+
+        att_val = None
+        if has_attendance and r.attendance is not None:
+            try:
+                att_val = float(r.attendance)
+            except (ValueError, TypeError):
+                pass
+
+        is_nota_vermelha = (g_float is not None and g_float < 6.0)
+        is_presenca_baixa = (has_attendance and att_val is not None and att_val < 75.0)
+
+        if not is_nota_vermelha and not is_presenca_baixa:
+            aprovados += 1
+        elif is_nota_vermelha and not is_presenca_baixa:
+            risco_nota += 1
+        elif not is_nota_vermelha and is_presenca_baixa:
+            risco_falta += 1
+        else:
+            risco_ambos += 1
+
+        if is_presenca_baixa:
+            presenca_baixa_count += 1
+            if is_nota_vermelha:
+                presenca_baixa_nota_baixa_count += 1
+
+    alunos_em_risco = risco_nota + risco_falta + risco_ambos
+    reprovacao_projetada_pct = round((alunos_em_risco / total_students) * 100.0, 1) if total_students > 0 else 0.0
+    correlacao_falta_nota_pct = round((presenca_baixa_nota_baixa_count / presenca_baixa_count) * 100.0, 1) if presenca_baixa_count > 0 else 0.0
+
+    dist_summary = (
+        f"DISTRIBUIÇÃO DE RISCO PREVENTIVO DA TURMA:\n"
+        f"- Aprovação Provável: {aprovados} alunos ({round(aprovados/total_students*100.0, 1) if total_students > 0 else 0.0}%)\n"
+        f"- Risco por Nota: {risco_nota} alunos ({round(risco_nota/total_students*100.0, 1) if total_students > 0 else 0.0}%)\n"
+        f"- Risco por Falta: {risco_falta} alunos ({round(risco_falta/total_students*100.0, 1) if total_students > 0 else 0.0}%)\n"
+        f"- Risco Crítico (Ambos): {risco_ambos} alunos ({round(risco_ambos/total_students*100.0, 1) if total_students > 0 else 0.0}%)\n"
+        f"- Taxa de Reprovação Final Projetada (Sem Intervenção): {reprovacao_projetada_pct}%\n"
+        f"- Correlação Falta-Nota (Gargalo Comportamental): {correlacao_falta_nota_pct}%\n"
+    )
+
     spreadsheet_summary = (
         f"Arquivo: {spreadsheet.filename}\n"
         f"Semestre: {spreadsheet.semester}\n"
         f"Curso: {spreadsheet.course_name}\n"
         f"Alunos: {spreadsheet.records_count}\n"
         f"Média Geral de Notas: {spreadsheet.avg_grade}\n"
-        f"Média Geral de Frequência: {spreadsheet.avg_attendance}%\n"
+        f"Média Geral de Frequência: {spreadsheet.avg_attendance}%\n\n"
+        f"{dist_summary}\n"
     )
 
     prompt = (
@@ -1290,6 +1360,63 @@ async def generate_spreadsheet_ai_analysis(
         avg_attendance = sum(attendance_values) / len(attendance_values) if has_attendance else None
         avg_grade = sum(numeric_grades) / len(numeric_grades) if numeric_grades else 7.0
 
+        # Calcular distribuição preventiva
+        total_students = len(records)
+        aprovados = 0
+        risco_nota = 0
+        risco_falta = 0
+        risco_ambos = 0
+
+        presenca_baixa_count = 0
+        presenca_baixa_nota_baixa_count = 0
+
+        for r in records:
+            grade_average, _ = _extract_numeric_grade_summary(r.grades or {})
+            g_float = None
+            if grade_average is not None:
+                try:
+                    g_float = float(grade_average)
+                except (ValueError, TypeError):
+                    pass
+
+            att_val = None
+            if has_attendance and r.attendance is not None:
+                try:
+                    att_val = float(r.attendance)
+                except (ValueError, TypeError):
+                    pass
+
+            is_nota_vermelha = (g_float is not None and g_float < 6.0)
+            is_presenca_baixa = (has_attendance and att_val is not None and att_val < 75.0)
+
+            if not is_nota_vermelha and not is_presenca_baixa:
+                aprovados += 1
+            elif is_nota_vermelha and not is_presenca_baixa:
+                risco_nota += 1
+            elif not is_nota_vermelha and is_presenca_baixa:
+                risco_falta += 1
+            else:  # is_nota_vermelha e is_presenca_baixa
+                risco_ambos += 1
+
+            if is_presenca_baixa:
+                presenca_baixa_count += 1
+                if is_nota_vermelha:
+                    presenca_baixa_nota_baixa_count += 1
+
+        alunos_em_risco = risco_nota + risco_falta + risco_ambos
+        reprovacao_projetada_pct = round((alunos_em_risco / total_students) * 100.0, 1) if total_students > 0 else 0.0
+        correlacao_falta_nota_pct = round((presenca_baixa_nota_baixa_count / presenca_baixa_count) * 100.0, 1) if presenca_baixa_count > 0 else 0.0
+
+        dist_stats = {
+            "total": total_students,
+            "aprovados": aprovados,
+            "risco_nota": risco_nota,
+            "risco_falta": risco_falta,
+            "risco_ambos": risco_ambos,
+            "reprovacao_projetada_pct": reprovacao_projetada_pct,
+            "correlacao_falta_nota_pct": correlacao_falta_nota_pct
+        }
+
         # Formatar dados para passar no prompt do Gemini
         kpis_summary = {
             "filename": spreadsheet.filename,
@@ -1329,6 +1456,15 @@ Suas missões são realizar uma varredura completa e inteligente nos dados da pl
 - Frequência Média Geral: {attendance_prompt_text}
 - Total de Alunos sob Alerta de Risco: {kpis_summary['at_risk_count']}
 
+📊 METRICAS PREVENTIVAS DA TURMA:
+- Distribuição Preventiva:
+  * Aprovação Provável: {dist_stats['aprovados']} alunos ({round(dist_stats['aprovados']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+  * Risco por Nota: {dist_stats['risco_nota']} alunos ({round(dist_stats['risco_nota']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+  * Risco por Falta: {dist_stats['risco_falta']} alunos ({round(dist_stats['risco_falta']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+  * Risco Crítico (Ambos): {dist_stats['risco_ambos']} alunos ({round(dist_stats['risco_ambos']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+- Taxa de Reprovação Final Projetada (Sem Intervenção): {dist_stats['reprovacao_projetada_pct']}%
+- Correlação de Baixa Frequência com Notas Vermelhas (Gargalo de Comportamento): {dist_stats['correlacao_falta_nota_pct']}%
+
 ⚠️ TOP 5 ALUNOS COM MAIOR RISCO PEDAGÓGICO:
 {json.dumps(top_5_risk, ensure_ascii=False, indent=2)}
 
@@ -1343,6 +1479,12 @@ Suas missões são realizar uma varredura completa e inteligente nos dados da pl
 
    # 📊 ANÁLISE DE IA: {kpis_summary['filename']}
    
+   ## 📊 Distribuição Preventiva Estimada da Turma
+   (Apresente uma tabela em markdown detalhando a distribuição preventiva da turma, com as seguintes colunas: Situação Preventiva, Quantidade de Alunos, Percentual. Liste as categorias: Aprovação Provável, Risco por Nota, Risco por Falta, Risco Crítico (Ambos), Total Analisado.
+   Logo abaixo da tabela, apresente em destaque de bullet points:
+   * 🔮 **Taxa de Reprovação Final Projetada (Sem Intervenção)**: {dist_stats['reprovacao_projetada_pct']}% da turma.
+   * 📉 **Gargalo de Comportamento**: {dist_stats['correlacao_falta_nota_pct']}% dos alunos com frequência abaixo de 75% também apresentam média de notas inferior a 6.0.)
+
    ## 1. Principais Tópicos & Padrões Pedagógicos Encontrados
    (Apresente uma varredura detalhada dos dados do semestre. Quais são os principais tópicos observados? Se houver presença, relacione com a nota; caso contrário, foque exclusivamente nos padrões de notas e avaliações. Seja concreto e analítico.)
 
@@ -1359,6 +1501,11 @@ Suas missões são realizar uma varredura completa e inteligente nos dados da pl
 
    ## 5. Sugestões de Tecnologias Educacionais de Apoio
    (Sugira tecnologias, plataformas, aplicativos e softwares específicos que podem apoiar o professor nessa mediação pedagógica, recuperação de conteúdo e monitoramento inteligente de dados. Diga exatamente qual a tecnologia e como usá-la no contexto das dificuldades apontadas.)
+
+   ## 6. Template de Engajamento Coletivo (Mensagem do Professor)
+   (Apresente sugestões/templates de mensagens de engajamento em português do Brasil que o professor pode copiar e enviar para os alunos em risco pedagógico. Inclua:
+   * Opção 1: Mensagem Curta para WhatsApp/Notificação
+   * Opção 2: E-mail de Apoio Pedagógico Estruturado)
 
 5. IMPORTANTE: Se a planilha não possuir dados de presença (has_attendance = False, Frequência Média Geral NÃO REGISTRADA), adapte todo o relatório para focar exclusivamente no aproveitamento de notas e ementas. NUNCA tente inventar taxas de frequência discentes ou padrões de assiduidade/faltas no relatório. Deixe claro que os dados de presença não constavam na base enviada.
 6. ATENÇÃO E REGRA CRÍTICA DE RUÍDO: Nunca dê destaque ou coloque como disciplinas críticas/fachada de risco no semestre as turmas ou componentes curriculares não convencionais (ex: estágios, orientações, trabalhos individuais) ou que tenham absurdamente poucos alunos (como menos de 3 alunos ativos discentes). Foque estritamente em componentes curriculares coletivos e turmas reais e ativas da instituição.
@@ -1398,10 +1545,10 @@ Seja extremamente profissional, com alto rigor analítico e tom pedagógico cons
                 report_markdown = text
             except Exception as gemini_err:
                 logger.error("Erro na API do Gemini em ai-analysis, usando fallback local: %s", gemini_err)
-                report_markdown = _generate_fallback_ai_analysis_markdown(kpis_summary, top_5_risk, critical_subject_name, critical_subject_reason)
+                report_markdown = _generate_fallback_ai_analysis_markdown(kpis_summary, top_5_risk, critical_subject_name, critical_subject_reason, dist_stats)
         else:
             # Fallback local de alta fidelidade
-            report_markdown = _generate_fallback_ai_analysis_markdown(kpis_summary, top_5_risk, critical_subject_name, critical_subject_reason)
+            report_markdown = _generate_fallback_ai_analysis_markdown(kpis_summary, top_5_risk, critical_subject_name, critical_subject_reason, dist_stats)
 
         return {
             "success": True,
@@ -1554,6 +1701,63 @@ async def generate_spreadsheet_ai_insights(
         avg_attendance = sum(attendance_values) / len(attendance_values) if has_attendance else None
         avg_grade = sum(numeric_grades) / len(numeric_grades) if numeric_grades else 7.0
 
+        # Calcular distribuição preventiva
+        total_students = len(records)
+        aprovados = 0
+        risco_nota = 0
+        risco_falta = 0
+        risco_ambos = 0
+
+        presenca_baixa_count = 0
+        presenca_baixa_nota_baixa_count = 0
+
+        for r in records:
+            grade_average, _ = _extract_numeric_grade_summary(r.grades or {})
+            g_float = None
+            if grade_average is not None:
+                try:
+                    g_float = float(grade_average)
+                except (ValueError, TypeError):
+                    pass
+
+            att_val = None
+            if has_attendance and r.attendance is not None:
+                try:
+                    att_val = float(r.attendance)
+                except (ValueError, TypeError):
+                    pass
+
+            is_nota_vermelha = (g_float is not None and g_float < 6.0)
+            is_presenca_baixa = (has_attendance and att_val is not None and att_val < 75.0)
+
+            if not is_nota_vermelha and not is_presenca_baixa:
+                aprovados += 1
+            elif is_nota_vermelha and not is_presenca_baixa:
+                risco_nota += 1
+            elif not is_nota_vermelha and is_presenca_baixa:
+                risco_falta += 1
+            else:  # is_nota_vermelha e is_presenca_baixa
+                risco_ambos += 1
+
+            if is_presenca_baixa:
+                presenca_baixa_count += 1
+                if is_nota_vermelha:
+                    presenca_baixa_nota_baixa_count += 1
+
+        alunos_em_risco = risco_nota + risco_falta + risco_ambos
+        reprovacao_projetada_pct = round((alunos_em_risco / total_students) * 100.0, 1) if total_students > 0 else 0.0
+        correlacao_falta_nota_pct = round((presenca_baixa_nota_baixa_count / presenca_baixa_count) * 100.0, 1) if presenca_baixa_count > 0 else 0.0
+
+        dist_stats = {
+            "total": total_students,
+            "aprovados": aprovados,
+            "risco_nota": risco_nota,
+            "risco_falta": risco_falta,
+            "risco_ambos": risco_ambos,
+            "reprovacao_projetada_pct": reprovacao_projetada_pct,
+            "correlacao_falta_nota_pct": correlacao_falta_nota_pct
+        }
+
         # Formatar dados para passar no prompt do Gemini
         kpis_summary = {
             "filename": spreadsheet.filename,
@@ -1592,6 +1796,15 @@ Sua missão é gerar um plano de intervenção pedagógica premium e tático foc
 - Diagnóstico da Disciplina Gargalo: {critical_subject_reason}
 - Total de Alunos em Risco na Planilha: {kpis_summary['at_risk_count']}
 
+📊 METRICAS PREVENTIVAS DA TURMA:
+- Distribuição Preventiva:
+  * Aprovação Provável: {dist_stats['aprovados']} alunos ({round(dist_stats['aprovados']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+  * Risco por Nota: {dist_stats['risco_nota']} alunos ({round(dist_stats['risco_nota']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+  * Risco por Falta: {dist_stats['risco_falta']} alunos ({round(dist_stats['risco_falta']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+  * Risco Crítico (Ambos): {dist_stats['risco_ambos']} alunos ({round(dist_stats['risco_ambos']/total_students*100.0, 1) if total_students > 0 else 0.0}%)
+- Taxa de Reprovação Final Projetada (Sem Intervenção): {dist_stats['reprovacao_projetada_pct']}%
+- Correlação de Baixa Frequência com Notas Vermelhas (Gargalo de Comportamento): {dist_stats['correlacao_falta_nota_pct']}%
+
 ⚠️ TOP 5 ALUNOS EM MAIOR RISCO NA PLANILHA:
 {json.dumps(top_5_risk, ensure_ascii=False, indent=2)}
 
@@ -1607,6 +1820,12 @@ Sua missão é gerar um plano de intervenção pedagógica premium e tático foc
 
    # 💡 Plano de Intervenção Pedagógica: {critical_subject_name} ({kpis_summary['course_name']})
    
+   ## 📊 Distribuição Preventiva Estimada da Turma
+   (Apresente uma tabela em markdown detalhando a distribuição preventiva da turma, com as seguintes colunas: Situação Preventiva, Quantidade de Alunos, Percentual. Liste as categorias: Aprovação Provável, Risco por Nota, Risco por Falta, Risco Crítico (Ambos), Total Analisado.
+   Logo abaixo da tabela, apresente em destaque de bullet points:
+   * 🔮 **Taxa de Reprovação Final Projetada (Sem Intervenção)**: {dist_stats['reprovacao_projetada_pct']}% da turma.
+   * 📉 **Gargalo de Comportamento**: {dist_stats['correlacao_falta_nota_pct']}% dos alunos com frequência abaixo de 75% também apresentam média de notas inferior a 6.0.)
+   
    ## 1. Contextualização Profissional (Conectando a Disciplina ao Curso)
    (Explique como a disciplina {critical_subject_name} se conecta diretamente com a atuação profissional na área de {kpis_summary['course_name']}. Por que ela é importante para a formação desse estudante?)
    
@@ -1618,6 +1837,11 @@ Sua missão é gerar um plano de intervenção pedagógica premium e tático foc
    
    ## 4. Tecnologias e Ferramentas de Apoio Contextualizadas
    (Recomende softwares, plataformas ou ferramentas práticas da área de tecnologia e desenvolvimento de software que facilitem o aprendizado de {critical_subject_name}.)
+
+   ## 5. Template de Engajamento Coletivo (Mensagem do Professor)
+   (Apresente sugestões/templates de mensagens de engajamento que o professor pode copiar e enviar para os alunos em risco pedagógico. Inclua:
+   * Opção 1: Mensagem Curta para WhatsApp/Notificação
+   * Opção 2: E-mail de Apoio Pedagógico Estruturado)
 
 Seja prático, focado e pedagógico, usando tom de consultoria Big Tech.
 """
@@ -1652,7 +1876,7 @@ Seja prático, focado e pedagógico, usando tom de consultoria Big Tech.
                 logger.error("Erro na API do Gemini em ai-insights, usando fallback local: %s", gemini_err)
 
         # Fallback offline
-        offline_text = _generate_fallback_ai_analysis_markdown(kpis_summary, top_5_risk, critical_subject_name, critical_subject_reason)
+        offline_text = _generate_fallback_ai_analysis_markdown(kpis_summary, top_5_risk, critical_subject_name, critical_subject_reason, dist_stats)
         return {"success": True, "insights": offline_text}
 
     except HTTPException as http_exc:

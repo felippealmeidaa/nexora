@@ -525,63 +525,63 @@ class HistoricalAnalysisService:
             },
             {
                 "id": "by_class",
-                "label": "Analise por turma",
+                "label": "Análise por Turma",
                 "description": "Leitura interna de cada turma com risco, nota, presenca, trabalho e engajamento.",
             },
             {
                 "id": "discipline_risk",
-                "label": "Risco por disciplina",
-                "description": "Ranking de disciplinas do recorte atual (priorize onde o risco esta concentrado).",
+                "label": "Previsão de Risco por Disciplina",
+                "description": "Projeta quais disciplinas terao maior taxa de risco de evasao e reprovacao.",
             },
             {
                 "id": "between_classes",
-                "label": "Entre turmas",
-                "description": "Comparacao entre turmas usando Diferenca (delta) de risco, nota, presenca e atividade.",
+                "label": "Comparativo Preditivo de Turmas",
+                "description": "Compara tendencias e riscos de desfecho projetados entre diferentes turmas.",
             },
             {
                 "id": "by_semester",
-                "label": "Por semestre",
+                "label": "Análise por Semestre",
                 "description": "Evolucao de risco, notas, presenca e aprovacao ao longo dos periodos.",
             },
             {
                 "id": "risk_topics",
-                "label": "Assuntos em risco",
-                "description": "Pontos de atencao combinando turmas, disciplinas e semestres.",
+                "label": "Tópicos de Alerta Preditivo",
+                "description": "Antecipa focos de atencao combinando projecao de queda em notas e frequencias.",
             },
             {
                 "id": "student_trends",
-                "label": "Tendencia por aluno",
+                "label": "Tendência por Aluno",
                 "description": "Evolucao de risco, nota e presenca para encontrar quem piorou rapido.",
             },
             {
                 "id": "risk_factors",
-                "label": "Fatores de risco",
+                "label": "Fatores de Risco",
                 "description": "Explica o que mais esta puxando o risco para cima (nota, presenca, atividade, etc.).",
             },
             {
                 "id": "early_alerts",
-                "label": "Alertas precoces",
+                "label": "Alertas Precoces",
                 "description": "Alertas simples para agir cedo: falta, baixa atividade, queda de nota e risco alto.",
             },
             {
                 "id": "intervention_simulator",
-                "label": "Simulador de intervencao",
+                "label": "Simulador de Intervenção",
                 "description": "Simula cenarios: se melhorar presenca/atividade/nota, quanto o risco pode cair.",
             },
             {
                 "id": "student_segments",
-                "label": "Segmentos de alunos",
+                "label": "Segmentos de Alunos",
                 "description": "Agrupa perfis (ex.: nota baixa, presenca baixa) para orientar intervencoes diferentes.",
             },
             {
                 "id": "risk_projection",
-                "label": "Projecao de risco",
+                "label": "Projeção de Risco",
                 "description": "Projecao simples do risco futuro (tendencia), para agir antes de virar critico.",
             },
             {
                 "id": "heatmap",
-                "label": "Mapa de calor",
-                "description": "Visao rapida por turma: risco, nota, presenca e atividade (cores para achar problemas).",
+                "label": "Mapa de Calor Preditivo",
+                "description": "Matriz de criticidade futura mostrando indicadores de risco projetado por turma.",
             },
         ]
 
@@ -589,8 +589,8 @@ class HistoricalAnalysisService:
             base.extend([
                 {
                     "id": "discipline_bottlenecks",
-                    "label": "Gargalos por disciplina",
-                    "description": "Disciplinas recorrentes com pior combinacao entre nota, atividade e presenca.",
+                    "label": "Gargalos Preditivos por Disciplina",
+                    "description": "Identifica tendencias de disciplinas recorrentes com pior projecao de notas.",
                 },
                 {
                     "id": "intervention_priorities",
@@ -613,6 +613,11 @@ class HistoricalAnalysisService:
             avg_grade = _safe_mean([float(i.get("grade_average") or 0.0) for i in items])
             avg_attendance = _safe_mean([float(i.get("attendance") or 0.0) for i in items])
             critical_students = sum(1 for i in items if i.get("risk_level") in ("critical", "high"))
+
+            real_avg_grade = _safe_mean([float(i.get("real_grade_average") or 0.0) for i in items])
+            real_avg_attendance = _safe_mean([float(i.get("real_attendance") or 0.0) for i in items])
+            real_avg_risk = round(_safe_mean([float(i.get("real_risk_score") or 0.0) for i in items]), 4)
+            is_completed = all(i.get("is_completed", True) for i in items)
 
             driver_totals: dict[str, float] = defaultdict(float)
             for item in items:
@@ -639,6 +644,10 @@ class HistoricalAnalysisService:
                 "avg_grade": avg_grade,
                 "avg_attendance": avg_attendance,
                 "top_drivers": top_drivers,
+                "real_avg_grade": real_avg_grade,
+                "real_avg_attendance": real_avg_attendance,
+                "real_avg_risk": real_avg_risk,
+                "is_completed": is_completed,
             })
 
         rows.sort(key=lambda r: (r.get("avg_risk", 0.0), r.get("critical_students", 0)), reverse=True)
@@ -782,18 +791,36 @@ class HistoricalAnalysisService:
             "trabalho": "Trabalho",
         }
 
+        total_contribution = sum(totals.values()) / count if count > 0 else 0.0
+        total_importance = 0.0
+        if model_diagnostics and "factor_importance" in model_diagnostics:
+            total_importance = sum(float(model_diagnostics["factor_importance"].get(k, 0.0)) for k in totals)
+
         rows = []
         for key, total in totals.items():
             avg_contribution = total / count
             model_importance = float((model_diagnostics or {}).get("factor_importance", {}).get(key, 0.0))
+            
+            # Normalizar a contribuição média para que o total represente 100% da causa raiz
+            if total_contribution > 0:
+                avg_contribution_percent = round((avg_contribution / total_contribution) * 100, 2)
+            else:
+                avg_contribution_percent = 0.0
+
+            # Normalizar a importância do modelo para que a soma represente 100%
+            if total_importance > 0:
+                model_importance_percent = round((model_importance / total_importance) * 100, 2)
+            else:
+                model_importance_percent = round(model_importance * 100, 2)
+
             rows.append({
                 "id": f"factor::{key}",
                 "key": key,
                 "label": labels.get(key, key),
                 "avg_contribution": round(avg_contribution, 4),
-                "avg_contribution_percent": round(avg_contribution * 100, 2),
+                "avg_contribution_percent": avg_contribution_percent,
                 "model_importance": round(model_importance, 4),
-                "model_importance_percent": round(model_importance * 100, 2),
+                "model_importance_percent": model_importance_percent,
             })
         rows.sort(key=lambda r: (r["avg_contribution"], r.get("model_importance", 0.0)), reverse=True)
         return rows
@@ -1063,6 +1090,45 @@ class HistoricalAnalysisService:
                 is_working=is_working,
                 work_balance_score=work_balance_score,
             )
+
+            # --- CÁLCULOS DAS MÉTRICAS REAIS ACUMULADAS (ESTADO ATUAL) ---
+            real_grade_values = []
+            if record.grades:
+                for key, value in record.grades.items():
+                    key_name = _normalize_text(key)
+                    if any(kw in key_name for kw in ["situacao", "status", "projetada", "✨", "frequencia real"]):
+                        continue
+                    numeric = self._to_float(value)
+                    if numeric is not None:
+                        if numeric > 10:
+                            numeric = numeric / 10 if numeric <= 100 else 10.0
+                        real_grade_values.append(_clamp(numeric, 0.0, 10.0))
+            real_grade_average = _safe_mean(real_grade_values, default=0.0)
+
+            real_attendance = None
+            if record.grades:
+                if "Frequencia Real" in record.grades:
+                    real_attendance = self._to_float(record.grades["Frequencia Real"])
+                elif "Frequência Real" in record.grades:
+                    real_attendance = self._to_float(record.grades["Frequência Real"])
+            if real_attendance is None:
+                real_attendance = round(float(record.attendance), 2) if record.attendance is not None else 75.0
+            real_attendance = _clamp(real_attendance, 0.0, 100.0)
+
+            real_grade_std = _safe_std(real_grade_values)
+            real_approval_flag = self._get_approval_flag(record.grades or {}, real_grade_average)
+            real_work_balance_score = self._calculate_work_balance(real_attendance, activity_score, is_working)
+            real_risk_score = self._calculate_risk_score(
+                grade_average=real_grade_average,
+                attendance=real_attendance,
+                activity_score=activity_score,
+                grade_std=real_grade_std,
+                approved=real_approval_flag,
+                is_working=is_working,
+                work_balance_score=real_work_balance_score,
+            )
+            # -------------------------------------------------------------
+
             subject_label = record.subject or "Turma sem disciplina"
             class_label = subject_label if not record.period else f"{subject_label} - {record.period}o periodo"
             prepared.append({
@@ -1094,6 +1160,9 @@ class HistoricalAnalysisService:
                 "discipline_difficulty": 0.0,
                 "class_key": f"{class_label}::{record.semester or 'Sem periodo'}::{record.course_name or 'Curso'}",
                 "is_completed": spreadsheet_status.get(record.spreadsheet_id, True),
+                "real_grade_average": round(real_grade_average, 2),
+                "real_attendance": round(real_attendance, 2),
+                "real_risk_score": real_risk_score,
             })
         return prepared
 
@@ -1365,6 +1434,9 @@ class HistoricalAnalysisService:
             "avg_attendance": _safe_mean([record["attendance"] for record in prepared_records]),
             "avg_activity": _safe_mean([record["activity_score"] for record in prepared_records]),
             "avg_risk": round(_safe_mean([record["risk_score"] for record in prepared_records]), 4),
+            "real_avg_grade": round(_safe_mean([record.get("real_grade_average", 0.0) for record in prepared_records]), 2),
+            "real_avg_attendance": round(_safe_mean([record.get("real_attendance", 75.0) for record in prepared_records]), 2),
+            "real_avg_risk": round(_safe_mean([record.get("real_risk_score", 0.0) for record in prepared_records]), 4),
             "critical_classes": len(critical_classes),
             "course_distribution": course_distribution,
             "model_diagnostics": model_diagnostics or self.statistical_risk_service._fallback_context("Modelagem indisponivel."),
@@ -1480,6 +1552,10 @@ class HistoricalAnalysisService:
         at_risk_students = self._serialize_priority_students(items, limit=4)
         is_projected = any(not item.get("is_completed", True) for item in items)
 
+        real_avg_grade = _safe_mean([item.get("real_grade_average", 0.0) for item in items])
+        real_avg_attendance = _safe_mean([item.get("real_attendance", 75.0) for item in items])
+        real_avg_risk = round(_safe_mean([item.get("real_risk_score", 0.0) for item in items]), 4)
+
         return {
             "id": group_id,
             "label": label,
@@ -1504,6 +1580,9 @@ class HistoricalAnalysisService:
             "at_risk_students": at_risk_students,
             "is_projected": is_projected,
             "preventive_risk_count": critical_students,
+            "real_avg_grade": real_avg_grade,
+            "real_avg_attendance": real_avg_attendance,
+            "real_avg_risk": real_avg_risk,
         }
 
     def _build_between_classes(

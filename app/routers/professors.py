@@ -499,6 +499,12 @@ def get_my_overview(
         })
     student_risks.sort(key=lambda item: item["risk_score"], reverse=True)
 
+    is_projected = db.query(Grade).filter(
+        Grade.student_id.in_(active_ids),
+        Grade.description.like("%Projetada%") | Grade.description.like("%✨%")
+    ).count() > 0 if active_ids else False
+    preventive_risk_count = sum(1 for item in student_risks if item["risk_level"] in ("high", "critical")) if is_projected else 0
+
     return {
         "kpis": {
             "total_students": len(student_ids),
@@ -508,6 +514,8 @@ def get_my_overview(
             "average_attendance_rate": avg_attendance,
             "at_risk_count": at_risk,
             "pass_rate": pass_info.get("pass_rate", 0.0),
+            "is_projected": is_projected,
+            "preventive_risk_count": preventive_risk_count,
         },
         "risk_summary": risk_summary,
         "top_at_risk": student_risks[:10],

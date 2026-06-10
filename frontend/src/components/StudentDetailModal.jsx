@@ -13,6 +13,15 @@ import {
     User,
     X,
 } from 'lucide-react';
+import {
+    ResponsiveContainer,
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    Tooltip,
+    CartesianGrid,
+} from 'recharts';
 import api from '@/services/api';
 import { Badge } from '@/components/ui/Badge';
 
@@ -20,6 +29,7 @@ const TAB_ITEMS = [
     { id: 'overview', label: 'Visão geral', icon: TrendingUp },
     { id: 'grades', label: 'Notas', icon: Award },
     { id: 'attendance', label: 'Frequência', icon: Clock },
+    { id: 'preventive', label: 'Ações Preventivas ✨', icon: Sparkles },
     { id: 'subjects', label: 'Disciplinas', icon: BookOpen },
     { id: 'schedule', label: 'Horários', icon: CalendarRange },
 ];
@@ -187,10 +197,17 @@ export function StudentDetailModal({ studentId, isOpen, onClose }) {
                                             kpis={kpis}
                                             history={history}
                                             recommendations={recommendations}
+                                            grades={grades}
                                         />
                                     )}
                                     {activeTab === 'grades' && <GradesTab grades={grades} />}
                                     {activeTab === 'attendance' && <AttendanceTab attendance={attendance} />}
+                                    {activeTab === 'preventive' && (
+                                        <PreventiveTab
+                                            studentId={studentId}
+                                            studentName={data?.student?.name}
+                                        />
+                                    )}
                                     {activeTab === 'subjects' && <SubjectsTab subjects={subjects} />}
                                     {activeTab === 'schedule' && <ScheduleTab schedule={schedule} />}
                                 </>
@@ -230,7 +247,82 @@ function TabButton({ active, onClick, icon: Icon, label }) {
     );
 }
 
-function OverviewTab({ student, kpis, history, recommendations }) {
+function OverviewTab({ student, kpis, history, recommendations, grades = [] }) {
+    // Filtrar disciplinas que possuem notas válidas
+    const validGrades = grades.filter(g => g.va1 !== null || g.va2 !== null || g.va3 !== null);
+    
+    // Estado local para a disciplina selecionada no gráfico
+    const [selectedCourse, setSelectedCourse] = useState('');
+
+    // Se o estado estiver vazio mas validGrades tiver itens, selecionamos o primeiro
+    useEffect(() => {
+        if (!selectedCourse && validGrades.length > 0) {
+            setSelectedCourse(validGrades[0].disciplina);
+        }
+    }, [validGrades, selectedCourse]);
+
+    const activeGrade = validGrades.find(g => g.disciplina === selectedCourse);
+
+    // Lógica para montar os dados do gráfico
+    let realData = [];
+    let projData = [];
+    let isProjectedDiscipline = false;
+
+    if (activeGrade) {
+        isProjectedDiscipline = !!activeGrade.is_projected;
+        const va1 = activeGrade.va1 != null ? Number(activeGrade.va1) : null;
+        const va2 = activeGrade.va2 != null ? Number(activeGrade.va2) : null;
+        const va3 = activeGrade.va3 != null ? Number(activeGrade.va3) : null;
+
+        const va2_proj = !!activeGrade.va2_projected;
+        const va3_proj = !!activeGrade.va3_projected;
+
+        // Montar Real
+        if (va1 !== null) {
+            realData.push({ name: 'VA1', nota: va1 });
+        }
+        if (va2 !== null && !va2_proj) {
+            realData.push({ name: 'VA2', nota: va2 });
+        }
+        if (va3 !== null && !va3_proj) {
+            realData.push({ name: 'VA3', nota: va3 });
+        }
+
+        // Montar Projetado
+        if (va2_proj && va2 !== null) {
+            if (va1 !== null) {
+                projData.push({ name: 'VA1', nota: va1 });
+            }
+            projData.push({ name: 'VA2', nota: va2 });
+            if (va3 !== null) {
+                projData.push({ name: 'VA3', nota: va3 });
+            }
+        } else if (va3_proj && va3 !== null) {
+            if (va2 !== null) {
+                projData.push({ name: 'VA2', nota: va2 });
+            } else if (va1 !== null) {
+                projData.push({ name: 'VA1', nota: va1 });
+            }
+            projData.push({ name: 'VA3', nota: va3 });
+        }
+    }
+
+    const CustomTooltip = ({ active, payload }) => {
+        if (active && payload && payload.length) {
+            const dataPoint = payload[0];
+            const name = dataPoint.name === 'Real' ? 'Nota Real' : 'Nota Projetada ✨';
+            return (
+                <div className="rounded-xl border border-border-subtle bg-white p-3 shadow-lg">
+                    <p className="text-xs font-semibold text-text-secondary">{dataPoint.payload.name}</p>
+                    <p className="mt-1 text-sm font-bold text-text-primary">
+                        {name}: <span className={getGradeColorClass(dataPoint.value)}>{dataPoint.value.toFixed(1)}</span>
+                    </p>
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
         <div className="space-y-5">
             <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
@@ -267,6 +359,72 @@ function OverviewTab({ student, kpis, history, recommendations }) {
                     </div>
                 </div>
             </div>
+
+            {/* Nova Seção: Trajetória de Notas Projetada */}
+            {validGrades.length > 0 && (
+                <div className="rounded-[24px] border border-border-subtle bg-bg-secondary/40 p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                            <TrendingUp className="h-4 w-4 text-indigo-600" />
+                            <p className="text-sm font-semibold text-text-primary">
+                                Trajetória Acadêmica Projetada {isProjectedDiscipline ? '✨' : ''}
+                            </p>
+                        </div>
+                        <select
+                            value={selectedCourse}
+                            onChange={(e) => setSelectedCourse(e.target.value)}
+                            className="rounded-xl border border-border-subtle bg-white px-3 py-1.5 text-xs font-semibold text-text-primary shadow-sm outline-none focus:border-indigo-400 transition"
+                        >
+                            {validGrades.map((g) => (
+                                <option key={g.disciplina} value={g.disciplina}>
+                                    {g.disciplina} {g.is_projected ? '✨' : ''}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="mt-6 h-[220px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart margin={{ top: 10, right: 30, left: -20, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                                <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                                <YAxis domain={[0, 10]} ticks={[0, 2, 4, 6, 8, 10]} stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                                <Tooltip content={<CustomTooltip />} cursor={false} />
+                                <Line
+                                    type="monotone"
+                                    data={realData}
+                                    dataKey="nota"
+                                    stroke="#0ea5e9"
+                                    strokeWidth={3}
+                                    dot={{ stroke: '#0ea5e9', strokeWidth: 2, fill: '#fff', r: 4 }}
+                                    activeDot={{ r: 6, strokeWidth: 0, fill: '#0ea5e9' }}
+                                    name="Real"
+                                    connectNulls
+                                />
+                                {projData.length > 0 && (
+                                    <Line
+                                        type="monotone"
+                                        data={projData}
+                                        dataKey="nota"
+                                        stroke="#8b5cf6"
+                                        strokeWidth={3}
+                                        strokeDasharray="6 6"
+                                        dot={{ stroke: '#8b5cf6', strokeWidth: 2, fill: '#fff', r: 4 }}
+                                        activeDot={{ r: 6, strokeWidth: 0, fill: '#8b5cf6' }}
+                                        name="Projetado ✨"
+                                        connectNulls
+                                    />
+                                )}
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                    {isProjectedDiscipline && (
+                        <p className="mt-3 text-[11px] text-text-secondary leading-5 italic flex items-center gap-1">
+                            <span>✨ Linha pontilhada indica projeção preditiva gerada pela inteligência matemática do NEXORA.</span>
+                        </p>
+                    )}
+                </div>
+            )}
 
             <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
                 <div className="rounded-[24px] border border-border-subtle bg-bg-secondary/40 p-5">
@@ -579,4 +737,218 @@ function formatTrend(value) {
     const numericValue = Number(value || 0);
     if (numericValue > 0) return `+${numericValue.toFixed(2)}`;
     return numericValue.toFixed(2);
+}
+
+function PreventiveTab({ studentId, studentName }) {
+    const [insights, setInsights] = useState(null);
+    const [loadingInsights, setLoadingInsights] = useState(true);
+    const [errorInsights, setErrorInsights] = useState('');
+
+    const [channel, setChannel] = useState('email');
+    const [draftText, setDraftText] = useState('');
+    const [generatingDraft, setGeneratingDraft] = useState(false);
+    const [errorDraft, setErrorDraft] = useState('');
+    const [copied, setCopied] = useState(false);
+
+    // Carregar insights ao montar o componente
+    useEffect(() => {
+        if (studentId) {
+            setLoadingInsights(true);
+            setErrorInsights('');
+            api.get(`/students/${studentId}/insights`)
+                .then((response) => {
+                    setInsights(response.data.insights);
+                })
+                .catch((err) => {
+                    console.error('Erro ao carregar insights de IA', err);
+                    setErrorInsights('Não foi possível carregar os insights da IA para este aluno.');
+                })
+                .finally(() => setLoadingInsights(false));
+        }
+    }, [studentId]);
+
+    // Gerar rascunho de mensagem preventiva
+    const handleGenerateDraft = () => {
+        setGeneratingDraft(true);
+        setErrorDraft('');
+        setDraftText('');
+        api.post(`/students/${studentId}/draft-alert`, { channel })
+            .then((response) => {
+                setDraftText(response.data.draft);
+            })
+            .catch((err) => {
+                console.error('Erro ao gerar rascunho de IA', err);
+                setErrorDraft('Não foi possível gerar o rascunho com a IA no momento.');
+            })
+            .finally(() => setGeneratingDraft(false));
+    };
+
+    // Copiar texto para a área de transferência
+    const handleCopy = () => {
+        if (!draftText) return;
+        navigator.clipboard.writeText(draftText)
+            .then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            })
+            .catch((err) => {
+                console.error('Erro ao copiar texto', err);
+            });
+    };
+
+    return (
+        <div className="space-y-6">
+            {/* Bloco 1: Insights da IA */}
+            <div className="rounded-[24px] border border-border-subtle bg-bg-secondary/40 p-5">
+                <div className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-indigo-600 animate-pulse" />
+                    <h3 className="text-sm font-semibold text-text-primary">Plano Preventivo e Insights de IA ✨</h3>
+                </div>
+
+                {loadingInsights ? (
+                    <div className="mt-5 space-y-3">
+                        <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
+                        <div className="h-4 w-5/6 animate-pulse rounded bg-slate-200" />
+                        <div className="h-4 w-4/6 animate-pulse rounded bg-slate-200" />
+                    </div>
+                ) : errorInsights ? (
+                    <p className="mt-4 text-sm text-danger">{errorInsights}</p>
+                ) : insights ? (
+                    <div className="mt-4 space-y-4">
+                        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
+                            <p className="text-sm font-medium leading-relaxed text-slate-800 italic">
+                                "{insights.summary}"
+                            </p>
+                            {insights.offline_fallback && (
+                                <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400">
+                                    Offline Fallback • NEXORA Analítico Local
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                            {/* Pontos Fortes */}
+                            <div className="rounded-2xl bg-white p-4 shadow-sm border border-border-subtle">
+                                <p className="text-xs font-bold uppercase tracking-wider text-success flex items-center gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Pontos Fortes
+                                </p>
+                                <ul className="mt-3 space-y-2.5">
+                                    {insights.strengths?.map((item, idx) => (
+                                        <li key={idx} className="text-xs text-text-secondary leading-relaxed">
+                                            {typeof item === 'object' ? (
+                                                <><strong>{item.title}:</strong> {item.description}</>
+                                            ) : item}
+                                        </li>
+                                    )) || <li className="text-xs text-text-tertiary">Nenhum identificado.</li>}
+                                </ul>
+                            </div>
+
+                            {/* Alertas */}
+                            <div className="rounded-2xl bg-white p-4 shadow-sm border border-border-subtle">
+                                <p className="text-xs font-bold uppercase tracking-wider text-danger flex items-center gap-1">
+                                    <ShieldAlert className="h-3.5 w-3.5" /> Pontos de Atenção
+                                </p>
+                                <ul className="mt-3 space-y-2.5">
+                                    {insights.alerts?.map((item, idx) => (
+                                        <li key={idx} className="text-xs text-text-secondary leading-relaxed">
+                                            {typeof item === 'object' ? (
+                                                <><strong>{item.title}:</strong> {item.description}</>
+                                            ) : item}
+                                        </li>
+                                    )) || <li className="text-xs text-text-tertiary">Nenhum identificado.</li>}
+                                </ul>
+                            </div>
+                        </div>
+
+                        {/* Dicas de Estudo */}
+                        <div className="rounded-2xl bg-white p-4 shadow-sm border border-border-subtle">
+                            <p className="text-xs font-bold uppercase tracking-wider text-indigo-600 flex items-center gap-1">
+                                <Sparkles className="h-3.5 w-3.5" /> Rota de Recuperação Recomendada
+                            </p>
+                            <ul className="mt-3 space-y-2.5">
+                                {insights.study_tips?.map((item, idx) => (
+                                    <li key={idx} className="text-xs text-text-secondary leading-relaxed flex items-start gap-1.5">
+                                        <span className="text-indigo-400 mt-0.5">•</span>
+                                        <span>
+                                            {typeof item === 'object' ? (
+                                                <><strong>{item.title}:</strong> {item.description}</>
+                                            ) : item}
+                                        </span>
+                                    </li>
+                                )) || <li className="text-xs text-text-tertiary">Nenhuma recomendação no momento.</li>}
+                            </ul>
+                        </div>
+                    </div>
+                ) : (
+                    <p className="mt-4 text-xs text-text-tertiary">Sem insights gerados para o aluno.</p>
+                )}
+            </div>
+
+            {/* Bloco 2: Rascunho de Mensagem Preventiva */}
+            <div className="rounded-[24px] border border-border-subtle bg-bg-secondary/40 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                        <CalendarRange className="h-5 w-5 text-indigo-600" />
+                        <h3 className="text-sm font-semibold text-text-primary">✉️ Enviar Alerta Preventivo de IA</h3>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <select
+                            value={channel}
+                            onChange={(e) => setChannel(e.target.value)}
+                            className="rounded-xl border border-border-subtle bg-white px-3 py-1.5 text-xs font-semibold text-text-primary shadow-sm outline-none focus:border-indigo-400 transition"
+                        >
+                            <option value="email">E-mail</option>
+                            <option value="whatsapp">WhatsApp</option>
+                        </select>
+
+                        <button
+                            type="button"
+                            onClick={handleGenerateDraft}
+                            disabled={generatingDraft}
+                            className="inline-flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2 text-xs font-bold text-white shadow-md transition hover:opacity-90 disabled:opacity-50"
+                        >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            {generatingDraft ? 'Gerando...' : 'Gerar Rascunho'}
+                        </button>
+                    </div>
+                </div>
+
+                {errorDraft && (
+                    <p className="mt-4 text-xs text-danger">{errorDraft}</p>
+                )}
+
+                <div className="mt-4 relative">
+                    <textarea
+                        value={draftText}
+                        onChange={(e) => setDraftText(e.target.value)}
+                        placeholder="Clique em 'Gerar Rascunho' para usar a inteligência do NEXORA para redigir uma mensagem empática voltada para a recuperação do aluno com base em suas notas projetadas..."
+                        rows={10}
+                        className="w-full rounded-2xl border border-border-subtle bg-white p-4 text-xs leading-relaxed text-text-primary shadow-inner outline-none focus:border-indigo-400 transition font-sans resize-y"
+                    />
+
+                    {draftText && (
+                        <div className="absolute bottom-4 right-4 flex items-center gap-2">
+                            {copied && (
+                                <span className="rounded-lg bg-success/10 px-2 py-1 text-[10px] font-bold text-success border border-success/20">
+                                    Copiado!
+                                </span>
+                            )}
+                            <button
+                                type="button"
+                                onClick={handleCopy}
+                                className="inline-flex items-center justify-center rounded-xl border border-border-subtle bg-white p-2 text-text-secondary hover:text-text-primary transition shadow"
+                                title="Copiar mensagem"
+                            >
+                                <Award className="h-4 w-4" />
+                            </button>
+                        </div>
+                    )}
+                </div>
+                <p className="mt-2 text-[10px] text-text-tertiary">
+                    Você pode alterar a mensagem livremente na caixa acima antes de copiar. O envio real deve ser feito através do seu gerenciador acadêmico habitual ou e-mail/WhatsApp institucional.
+                </p>
+            </div>
+        </div>
+    );
 }

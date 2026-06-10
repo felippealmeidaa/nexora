@@ -8,6 +8,7 @@ import {
     GraduationCap,
     Loader2,
     Shield,
+    Sparkles,
     TrendingUp,
     Users,
 } from 'lucide-react';
@@ -82,6 +83,8 @@ export function CoordinatorDashboard() {
     const kpis = overview?.kpis || {};
     const riskSummary = overview?.risk_summary || {};
     const topAtRisk = overview?.top_at_risk || [];
+    const isProjectedActive = !!kpis.is_projected;
+
     const riskBlocks = useMemo(() => ([
         { key: 'low', label: 'Baixo risco', value: riskSummary.low || 0 },
         { key: 'medium', label: 'Risco moderado', value: riskSummary.medium || 0 },
@@ -102,11 +105,45 @@ export function CoordinatorDashboard() {
                 )}
             />
 
+            {isProjectedActive && (
+                <div className="rounded-[24px] border border-indigo-500/30 bg-gradient-to-r from-indigo-500/5 via-purple-500/5 to-pink-500/5 backdrop-blur-md px-6 py-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fade-in">
+                    <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20 text-indigo-700">
+                            <Sparkles className="h-5 w-5 animate-pulse text-indigo-600" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-indigo-900 tracking-wide uppercase flex items-center gap-1.5">
+                                Monitoramento Preventivo de IA Ativo
+                            </h4>
+                            <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+                                ⚠️ KPIs e indicadores agregados contêm projeções preditivas para fechamento do semestre do curso.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-start md:self-auto flex-shrink-0">
+                        <span className="inline-flex items-center rounded-full bg-indigo-500/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700 border border-indigo-500/30 animate-pulse">
+                            IA Projetada ✨
+                        </span>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard title="Total de alunos" value={loading ? '...' : kpis.total_students || 0} icon={Users} tone="purple" helper="Base vinculada à coordenação" />
                 <MetricCard title="GPA médio" value={loading ? '...' : Number(kpis.average_gpa || 0).toFixed(2)} icon={TrendingUp} tone="blue" helper="Desempenho agregado do curso" />
                 <MetricCard title="Disciplinas monitoradas" value={loading ? '...' : kpis.total_subjects || 0} icon={BookOpen} tone="amber" helper="Oferta acadêmica acompanhada" />
-                <MetricCard title="Casos em risco" value={loading ? '...' : kpis.at_risk_count || 0} icon={AlertTriangle} tone="rose" helper="Alunos com prioridade de intervenção" />
+                <MetricCard
+                    title={
+                        <div className="flex items-center gap-1.5">
+                            Casos em risco
+                            {isProjectedActive && <Sparkles className="h-3.5 w-3.5 text-rose-500 animate-pulse" />}
+                        </div>
+                    }
+                    value={loading ? '...' : (isProjectedActive ? kpis.preventive_risk_count : kpis.at_risk_count) || 0}
+                    icon={AlertTriangle}
+                    tone="rose"
+                    helper={isProjectedActive ? "Risco preventivo projetado por IA ✨" : "Alunos com prioridade de intervenção"}
+                />
             </div>
 
             {aiInsights && (
@@ -169,34 +206,50 @@ export function CoordinatorDashboard() {
 
                 {topAtRisk.length > 0 ? (
                     <div className="space-y-3">
-                        {topAtRisk.slice(0, 10).map((student, index) => (
-                            <motion.div
-                                key={student.student_id}
-                                className="grid gap-4 rounded-[22px] border border-border-subtle bg-bg-secondary/50 p-4 lg:grid-cols-[1.5fr_repeat(3,0.55fr)_0.55fr]"
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.03 }}
-                            >
-                                <div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedStudentId(student.student_id)}
-                                        className="text-left text-sm font-semibold text-text-primary transition-colors hover:text-accent-blue"
-                                    >
-                                        {student.student_name}
-                                    </button>
-                                    <p className="mt-1 text-sm text-text-secondary">{student.registration_number}</p>
-                                </div>
-                                <InlineMetric label="GPA" value={student.gpa?.toFixed(1) || '--'} />
-                                <InlineMetric label="Frequência" value={`${student.attendance_rate?.toFixed(1) || '--'}%`} />
-                                <InlineMetric label="Score" value={`${((student.risk_score || 0) * 100).toFixed(0)}%`} />
-                                <div className="flex items-center lg:justify-end">
-                                    <Badge variant={student.risk_level === 'critical' ? 'danger' : student.risk_level === 'high' ? 'purple' : student.risk_level === 'medium' ? 'warning' : 'success'}>
-                                        {riskLabels[student.risk_level] || student.risk_level}
-                                    </Badge>
-                                </div>
-                            </motion.div>
-                        ))}
+                        {topAtRisk.slice(0, 10).map((student, index) => {
+                            const isCriticalRisk = student.risk_level === 'high' || student.risk_level === 'critical';
+                            const shouldHighlight = isProjectedActive && isCriticalRisk;
+                            return (
+                                <motion.div
+                                    key={student.student_id}
+                                    className={`grid gap-4 rounded-[22px] border p-4 lg:grid-cols-[1.5fr_repeat(3,0.55fr)_0.55fr] transition-all ${
+                                        shouldHighlight
+                                            ? 'border-indigo-500/40 bg-gradient-to-r from-indigo-500/5 to-purple-500/5 shadow-[0_0_12px_-3px_rgba(99,102,241,0.25)]'
+                                            : 'border-border-subtle bg-bg-secondary/50'
+                                    }`}
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.03 }}
+                                >
+                                    <div>
+                                        <div className="flex items-center flex-wrap gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedStudentId(student.student_id)}
+                                                className="text-left text-sm font-semibold text-text-primary transition-colors hover:text-accent-blue"
+                                            >
+                                                {student.student_name}
+                                            </button>
+                                            {shouldHighlight && (
+                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-bold text-indigo-700 border border-indigo-150 animate-pulse ml-2">
+                                                    <Sparkles className="h-2.5 w-2.5" />
+                                                    Risco Preventivo IA
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="mt-1 text-sm text-text-secondary">{student.registration_number}</p>
+                                    </div>
+                                    <InlineMetric label="GPA" value={student.gpa != null ? Number(student.gpa).toFixed(1) : '--'} />
+                                    <InlineMetric label="Frequência" value={student.attendance_rate != null ? `${Number(student.attendance_rate).toFixed(1)}%` : '--'} />
+                                    <InlineMetric label="Score" value={student.risk_score != null ? `${(Number(student.risk_score) * 100).toFixed(0)}%` : '--'} />
+                                    <div className="flex items-center lg:justify-end">
+                                        <Badge variant={student.risk_level === 'critical' ? 'danger' : student.risk_level === 'high' ? 'purple' : student.risk_level === 'medium' ? 'warning' : 'success'}>
+                                            {riskLabels[student.risk_level] || student.risk_level}
+                                        </Badge>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
                     </div>
                 ) : (
                     <EmptyState

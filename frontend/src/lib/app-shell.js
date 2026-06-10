@@ -73,7 +73,7 @@ const NAV_BY_ROLE = {
         { icon: BookOpen, label: 'Disciplinas acompanhadas', description: 'Componentes, turmas e alunos vinculados', to: '/proreitor/courses' },
         { icon: ScrollText, label: 'Subir planilhas', description: 'Envio, normalização e processamento por IA', to: '/proreitor/historical-upload' },
         { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Lista de arquivos e análises com IA integradas', to: '/proreitor/historical-data' },
-        { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Cinco recortes para leitura profunda', to: '/proreitor/analysis-center' },
+        { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Previsões e análise de dados preditivos', to: '/proreitor/analysis-center' },
         { icon: UserCircle2, label: 'Meu perfil', description: 'Dados, cursos e configurações da pró-reitoria', to: '/proreitor/profile' },
     ],
     viewer: [
@@ -95,7 +95,7 @@ const NAV_BY_ROLE = {
         { icon: BookOpen, label: 'Disciplinas matriculadas', description: 'Componentes, turmas e alunos vinculados', to: '/professor/courses' },
         { icon: ScrollText, label: 'Subir planilhas', description: 'Envio, normalização e processamento por IA', to: '/professor/historical-upload' },
         { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Lista de arquivos e análises com IA integradas', to: '/professor/historical-data' },
-        { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Cinco recortes para leitura profunda', to: '/professor/analysis-center' },
+        { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Previsões e análise de dados preditivos', to: '/professor/analysis-center' },
         { icon: UserCircle2, label: 'Meu perfil', description: 'Dados docentes e cursos vinculados', to: '/professor/profile' },
     ],
     student: [

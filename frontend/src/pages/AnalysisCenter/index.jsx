@@ -9,9 +9,12 @@ import {
     BrainCircuit,
     CalendarRange,
     CheckCircle2,
+    ChevronDown,
+    ChevronRight,
     Download,
     Filter,
     Layers3,
+    LayoutDashboard,
     Lightbulb,
     Loader2,
     Search,
@@ -42,6 +45,7 @@ import api from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { buildRolePath, isProfessorLikeRole } from '@/lib/app-shell';
 import { Badge } from '@/components/ui/Badge';
+import { Tooltip as UiTooltip } from '@/components/ui/Tooltip';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -108,8 +112,8 @@ function DisciplineRiskPanel({ rows }) {
     return (
         <Card>
             <CardHeader
-                title="Risco por disciplina"
-                subtitle="Ranking do recorte atual. Ajuda a priorizar quais disciplinas precisam de interven\u00e7\u00e3o primeiro."
+                title="Previsão de risco por disciplina"
+                subtitle="Ranking de projeção de risco futuro. Permite agir preventivamente nas disciplinas críticas."
                 icon={BookOpen}
             />
             <div className="space-y-4">
@@ -139,7 +143,7 @@ function DisciplineRiskPanel({ rows }) {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
                                     <XAxis type="number" tickLine={false} axisLine={false} fontSize={12} />
                                     <YAxis type="category" dataKey="disciplina" tickLine={false} axisLine={false} fontSize={12} width={160} />
-                                    <Tooltip content={<GlobalCustomTooltip />} />
+                                    <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                     <Bar dataKey="risco" fill="url(#gradientDiscipline)" radius={[10, 10, 10, 10]} name="Risco m\u00e9dio (%)" />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -161,10 +165,27 @@ function DisciplineRiskPanel({ rows }) {
                                     {topRows.map((item) => (
                                         <tr key={item.id} className="rounded-[22px] border border-border-subtle bg-white shadow-sm">
                                             <td className="rounded-l-[20px] px-4 py-4 font-semibold text-text-primary">{item.subject}</td>
-                                            <td className="px-4 py-4"><Badge variant={getRiskVariant(item.risk_level)}>{formatRisk(item.avg_risk)}</Badge></td>
+                                            <td className="px-4 py-4">
+                                                <div className="flex flex-col gap-1 items-start">
+                                                    <Badge variant={getRiskVariant(item.risk_level)}>{formatRisk(item.avg_risk)}</Badge>
+                                                    {item.real_avg_risk !== undefined && (
+                                                        <span className="text-[10px] text-text-tertiary font-medium">Real: {formatRisk(item.real_avg_risk)}</span>
+                                                    )}
+                                                </div>
+                                            </td>
                                             <td className="px-4 py-4 text-text-secondary">{item.critical_students}</td>
-                                            <td className="px-4 py-4 font-semibold text-text-primary">{Number(item.avg_grade || 0).toFixed(2)}</td>
-                                            <td className="px-4 py-4 text-text-secondary">{formatPercent(item.avg_attendance)}</td>
+                                            <td className="px-4 py-4 font-semibold text-text-primary">
+                                                <div className="font-semibold text-text-primary">{Number(item.avg_grade || 0).toFixed(2)}</div>
+                                                {item.real_avg_grade !== undefined && (
+                                                    <div className="text-[11px] text-text-tertiary font-normal">Real: {Number(item.real_avg_grade).toFixed(2)}</div>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-4">
+                                                <div className="text-text-primary font-semibold">{formatPercent(item.avg_attendance)}</div>
+                                                {item.real_avg_attendance !== undefined && (
+                                                    <div className="text-[11px] text-text-tertiary font-normal">Real: {formatPercent(item.real_avg_attendance)}</div>
+                                                )}
+                                            </td>
                                             <td className="rounded-r-[20px] px-4 py-4 text-text-secondary">
                                                 {(item.top_drivers || []).map((key) => driverLabels[key] || key).join(' • ') || '-'}
                                             </td>
@@ -220,7 +241,7 @@ function StudentSegmentsPanel({ rows }) {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                     <XAxis dataKey="segmento" tickLine={false} axisLine={false} fontSize={12} />
                                     <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} />
-                                    <Tooltip content={<GlobalCustomTooltip />} />
+                                    <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                     <Bar dataKey="alunos" fill="url(#gradientSegments)" radius={[10, 10, 0, 0]} name="Alunos" />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -303,7 +324,7 @@ function RiskProjectionPanel({ rows }) {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                     <XAxis dataKey="aluno" tickLine={false} axisLine={false} fontSize={12} />
                                     <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} />
-                                    <Tooltip content={<GlobalCustomTooltip />} />
+                                    <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                     <Legend />
                                     <Bar dataKey="agora" fill="url(#gradientAgora)" radius={[10, 10, 0, 0]} name="Agora (%)" />
                                     <Bar dataKey="semanas8" fill="url(#gradient8Semanas)" radius={[10, 10, 0, 0]} name="8 semanas (%)" />
@@ -379,8 +400,8 @@ function HeatmapPanel({ data }) {
     return (
         <Card>
             <CardHeader
-                title="Mapa de calor"
-                subtitle="Cores para encontrar turmas com problema rapidamente."
+                title="Mapa de Calor Preditivo"
+                subtitle="Matriz de criticidade futura projetando níveis de risco estimado por turma."
                 icon={BarChart3}
             />
             <div className="space-y-4">
@@ -451,25 +472,37 @@ function MinimalOverview({ overview, disciplines }) {
     const badPercent = totalDisciplines > 0 ? Math.round((badCount / totalDisciplines) * 100) : 0;
 
     const pieData = [
-        { name: 'Saindo Bem (M\u00e9dia ≥ 6.0)', value: goodCount, color: '#10B981' },
-        { name: 'Abaixo da M\u00e9dia (M\u00e9dia < 6.0)', value: badCount, color: '#EF4444' }
+        { name: 'Saindo Bem (Média ≥ 6.0)', value: goodCount, color: '#10B981' },
+        { name: 'Abaixo da Média (Média < 6.0)', value: badCount, color: '#EF4444' }
     ].filter(d => d.value > 0);
 
     return (
         <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-3">
-                <MetricCard title="Alunos" value={overview.total_students} helper="No recorte atual" icon={Users} tone="blue" />
-                <MetricCard title="M\u00e9dia de notas" value={overview.avg_grade?.toFixed(2)} helper="No recorte atual" icon={CheckCircle2} tone="indigo" />
-                <MetricCard title="Risco m\u00e9dio" value={formatRisk(overview.avg_risk)} helper="Quanto maior, pior" icon={ShieldAlert} tone="amber" />
+                <MetricCard title="Alunos Mapeados" value={overview.total_students} helper="No recorte atual" icon={Users} tone="blue" />
+                <MetricCard 
+                    title="Média de Notas Projetada ✨" 
+                    value={overview.avg_grade?.toFixed(2)} 
+                    helper={overview.real_avg_grade !== undefined ? `Atual real: ${overview.real_avg_grade.toFixed(2)}` : "No recorte atual"} 
+                    icon={CheckCircle2} 
+                    tone="indigo" 
+                />
+                <MetricCard 
+                    title="Risco Médio Projetado ✨" 
+                    value={formatRisk(overview.avg_risk)} 
+                    helper={overview.real_avg_risk !== undefined ? `Risco atual real: ${formatRisk(overview.real_avg_risk)}` : "Quanto maior, pior"} 
+                    icon={ShieldAlert} 
+                    tone="amber" 
+                />
             </div>
 
             <Card>
-                <CardHeader title="Aproveitamento Geral das Disciplinas" subtitle="Propor\u00e7\u00e3o de disciplinas com desempenho satisfat\u00f3rio." icon={BarChart3} />
+                <CardHeader title="Previsão de Aproveitamento das Disciplinas ✨" subtitle="Proporção estimada de disciplinas com desempenho final satisfatório." icon={BarChart3} />
                 <div className="grid sm:grid-cols-[1.1fr_0.9fr] gap-4 items-center h-48 select-none">
                     <div className="h-full w-full outline-none focus:outline-none">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart style={{ outline: 'none' }} className="outline-none focus:outline-none">
-                                <Tooltip formatter={(value, name) => [`${value} disciplinas`, name]} />
+                                <Tooltip formatter={(value, name) => [`${value} disciplinas`, name]} cursor={false} />
                                 <Pie
                                     data={pieData}
                                     cx="50%"
@@ -501,7 +534,7 @@ function MinimalOverview({ overview, disciplines }) {
                         <div className="rounded-2xl border border-border-subtle bg-bg-secondary/20 px-3.5 py-2.5">
                             <div className="flex items-center gap-2">
                                 <span className="h-3 w-3 rounded-full bg-red-500 shadow-sm" />
-                                <span className="text-xs font-semibold text-text-primary">Abaixo da M\u00e9dia</span>
+                                <span className="text-xs font-semibold text-text-primary">Abaixo da Média</span>
                             </div>
                             <p className="mt-1 text-xs text-text-secondary">
                                 <span className="text-sm font-bold text-text-primary">{badCount}</span> disciplinas ({badPercent}%)
@@ -635,7 +668,7 @@ function StudentTrendsPanel({ rows }) {
                                         <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                         <XAxis dataKey="aluno" tickLine={false} axisLine={false} fontSize={12} />
                                         <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} />
-                                        <Tooltip content={<GlobalCustomTooltip />} />
+                                        <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                         <Legend />
                                         <Bar dataKey="risco" fill="url(#gradientTrendsRisco)" radius={[10, 10, 0, 0]} name="Risco atual (%)" />
                                         <Bar dataKey="riscoMudou" fill="url(#gradientTrendsMudanca)" radius={[10, 10, 0, 0]} name="Mudança de risco (%)" />
@@ -773,7 +806,7 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
                                     <XAxis type="number" tickLine={false} axisLine={false} fontSize={12} />
                                     <YAxis type="category" dataKey="fator" tickLine={false} axisLine={false} fontSize={12} width={130} />
-                                    <Tooltip content={<GlobalCustomTooltip />} />
+                                    <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                     <Bar dataKey="contribuicao" fill="url(#gradientFactors)" radius={[10, 10, 10, 10]} name="Peso no risco (%)" />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -1093,7 +1126,7 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                     <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} stroke="#64748B" />
                                     <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} domain={[0, 100]} stroke="#64748B" />
-                                    <Tooltip content={<CustomTooltip />} />
+                                    <Tooltip content={<CustomTooltip />} cursor={false} />
                                     <Bar dataKey="Risco" radius={[12, 12, 0, 0]} barSize={90}>
                                         {chartComparisonData.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={entry.fill} />
@@ -1284,7 +1317,7 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
                                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                     <XAxis dataKey="aluno" tickLine={false} axisLine={false} fontSize={12} />
                                     <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} />
-                                    <Tooltip />
+                                    <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                     <Legend />
                                     <Bar dataKey="risco" fill="#6A1BFF" radius={[10, 10, 0, 0]} name="Risco (%)" />
                                 </BarChart>
@@ -1372,10 +1405,13 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
     const comparisonRows = useMemo(() => {
         if (!classA || !classB) return [];
         const metrics = [
-            { id: 'risk', label: 'Indice de risco', a: classA.risk_score, b: classB.risk_score, formatter: formatRisk, better: 'lower' },
-            { id: 'grade', label: 'Nota media', a: classA.avg_grade, b: classB.avg_grade, formatter: (v) => Number(v || 0).toFixed(2), better: 'higher' },
-            { id: 'attendance', label: 'Presen\u00e7a m\u00e9dia', a: classA.avg_attendance, b: classB.avg_attendance, formatter: formatPercent, better: 'higher' },
-            { id: 'activity', label: 'Atividade media', a: classA.avg_activity, b: classB.avg_activity, formatter: formatPercent, better: 'higher' },
+            { id: 'risk', label: 'Índice de risco projetado ✨', a: classA.risk_score, b: classB.risk_score, formatter: formatRisk, better: 'lower' },
+            { id: 'real_risk', label: 'Índice de risco real atual', a: classA.real_avg_risk, b: classB.real_avg_risk, formatter: formatRisk, better: 'lower' },
+            { id: 'grade', label: 'Nota média projetada ✨', a: classA.avg_grade, b: classB.avg_grade, formatter: (v) => Number(v || 0).toFixed(2), better: 'higher' },
+            { id: 'real_grade', label: 'Nota média real atual', a: classA.real_avg_grade, b: classB.real_avg_grade, formatter: (v) => Number(v || 0).toFixed(2), better: 'higher' },
+            { id: 'attendance', label: 'Presença média projetada ✨', a: classA.avg_attendance, b: classB.avg_attendance, formatter: formatPercent, better: 'higher' },
+            { id: 'real_attendance', label: 'Presença média real atual', a: classA.real_avg_attendance, b: classB.real_avg_attendance, formatter: formatPercent, better: 'higher' },
+            { id: 'activity', label: 'Atividade média', a: classA.avg_activity, b: classB.avg_activity, formatter: formatPercent, better: 'higher' },
             { id: 'working', label: 'Trabalho', a: classA.working_share, b: classB.working_share, formatter: formatPercent, better: 'lower' },
         ];
 
@@ -1462,24 +1498,24 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
             ) : (
                 <Card>
                     <CardHeader
-                        title="Comparativo objetivo"
+                        title="Comparativo Preditivo de Turmas"
                         subtitle={`${classA.label} vs ${classB.label}`}
                         icon={BarChart3}
                     />
                     <div className="mx-6 rounded-[22px] border border-border-subtle bg-bg-secondary/35 px-5 py-4 text-sm text-text-secondary">
-                        <span className="font-semibold text-text-primary">Leitura rapida:</span> {comparisonSummary}
+                        <span className="font-semibold text-text-primary">Tendência futura:</span> {comparisonSummary}
                     </div>
                     <div className="px-6 pb-2 text-sm text-text-secondary">
-                        Diferença = quanto a Turma A está acima ou abaixo da Turma B.
+                        Diferença = projeção do desvio esperado da Turma A em relação à Turma B.
                     </div>
 
                     <div className="px-6">
                         <MetricsHelp
                             items={[
-                                { label: 'Indice de risco', description: 'Chance de evas\u00e3o (menor e melhor).' },
-                                { label: 'Nota media', description: 'M\u00e9dia de notas da turma (maior e melhor).' },
-                                { label: 'Presen\u00e7a m\u00e9dia', description: 'M\u00e9dia de presen\u00e7a (maior \u00e9 melhor).' },
-                                { label: 'Atividade media', description: 'Indicador de entregas/atividades (maior e melhor).' },
+                                { label: 'Índice de risco', description: 'Chance de evasão/reprovação (menor é melhor).' },
+                                { label: 'Nota média', description: 'Média de notas da turma (maior é melhor).' },
+                                { label: 'Presença média', description: 'Média de presença (maior é melhor).' },
+                                { label: 'Atividade média', description: 'Indicador de entregas/atividades (maior é melhor).' },
                                 { label: 'Trabalho', description: 'Percentual de alunos que trabalham (pode aumentar dificuldade de acompanhar).' },
                             ]}
                         />
@@ -1490,14 +1526,14 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
                             <BarChart
                                 data={comparisonRows.map((row) => ({
                                     metrica: row.label,
-                                    turmaA: row.id === 'risk' ? Math.round(Number(row.a || 0) * 100) : Number(row.a || 0),
-                                    turmaB: row.id === 'risk' ? Math.round(Number(row.b || 0) * 100) : Number(row.b || 0),
+                                    turmaA: (row.id === 'risk' || row.id === 'real_risk') ? Math.round(Number(row.a || 0) * 100) : Number(row.a || 0),
+                                    turmaB: (row.id === 'risk' || row.id === 'real_risk') ? Math.round(Number(row.b || 0) * 100) : Number(row.b || 0),
                                 }))}
                             >
                                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                 <XAxis dataKey="metrica" tickLine={false} axisLine={false} fontSize={12} />
                                 <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} />
-                                <Tooltip />
+                                <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                 <Legend />
                                 <Bar dataKey="turmaA" fill="#0B57D0" radius={[10, 10, 0, 0]} name="Turma A" />
                                 <Bar dataKey="turmaB" fill="#6A1BFF" radius={[10, 10, 0, 0]} name="Turma B" />
@@ -1522,7 +1558,12 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
                                         <td className="px-4 py-4"><Badge variant={row.aTone}>{row.formatter(row.a)}</Badge></td>
                                         <td className="px-4 py-4"><Badge variant={row.bTone}>{row.formatter(row.b)}</Badge></td>
                                         <td className="rounded-r-[20px] px-4 py-4 text-text-secondary">
-                                            {row.delta > 0 ? '+' : ''}{row.id === 'risk' ? `${(row.delta * 100).toFixed(1)}%` : row.id === 'attendance' || row.id === 'activity' || row.id === 'working' ? `${row.delta.toFixed(1)}%` : row.delta.toFixed(2)}
+                                            {row.delta > 0 ? '+' : ''}
+                                            {(row.id === 'risk' || row.id === 'real_risk') 
+                                                ? `${(row.delta * 100).toFixed(1)}%` 
+                                                : (row.id === 'attendance' || row.id === 'real_attendance' || row.id === 'activity' || row.id === 'working') 
+                                                    ? `${row.delta.toFixed(1)}%` 
+                                                    : row.delta.toFixed(2)}
                                         </td>
                                     </tr>
                                 ))}
@@ -1557,13 +1598,25 @@ function MetricGrid({ overview, isCoordinator }) {
     return (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard title="Registros" value={overview.total_records} helper={`${overview.total_students} alunos mapeados`} icon={BarChart3} tone="blue" />
-            <MetricCard title="M\u00e9dia de notas" value={overview.avg_grade?.toFixed(2)} helper={`${overview.total_classes} turmas observadas`} icon={CheckCircle2} tone="indigo" />
-            <MetricCard title={"Presen\u00e7a m\u00e9dia"} value={formatPercent(overview.avg_attendance)} helper="Leitura consolidada da base" icon={Users} tone="emerald" />
-            <MetricCard title="Atividade media" value={formatPercent(overview.avg_activity)} helper="Engajamento e entregas avaliativas" icon={BookOpen} tone="purple" />
+            <MetricCard 
+                title="Média de Notas Projetada ✨" 
+                value={overview.avg_grade?.toFixed(2)} 
+                helper={overview.real_avg_grade !== undefined ? `Atual real: ${overview.real_avg_grade.toFixed(2)}` : `${overview.total_classes} turmas observadas`} 
+                icon={CheckCircle2} 
+                tone="indigo" 
+            />
+            <MetricCard 
+                title="Presença Média Projetada ✨" 
+                value={formatPercent(overview.avg_attendance)} 
+                helper={overview.real_avg_attendance !== undefined ? `Atual real: ${formatPercent(overview.real_avg_attendance)}` : "Mapeamento global da base"} 
+                icon={Users} 
+                tone="emerald" 
+            />
+            <MetricCard title="Atividade Média" value={formatPercent(overview.avg_activity)} helper="Entregas acadêmicas e engajamento" icon={BookOpen} tone="purple" />
             <MetricCard
-                title={isCoordinator ? 'Turmas criticas' : 'Risco m\u00e9dio'}
+                title={isCoordinator ? 'Turmas Críticas' : 'Risco Médio Projetado ✨'}
                 value={isCoordinator ? overview.critical_classes : formatRisk(overview.avg_risk)}
-                helper={isCoordinator ? 'Turmas exigindo interven\u00e7\u00e3o no curso' : `${overview.working_students || 0} alunos conciliam trabalho e estudo`}
+                helper={isCoordinator ? 'Turmas exigindo intervenções preventivas' : (overview.real_avg_risk !== undefined ? `Risco atual real: ${formatRisk(overview.real_avg_risk)}` : `${overview.working_students || 0} alunos conciliam trabalho e estudo`)}
                 icon={ShieldAlert}
                 tone="amber"
             />
@@ -1572,7 +1625,8 @@ function MetricGrid({ overview, isCoordinator }) {
 }
 
 function OverviewPanel({ workspace, isCoordinator }) {
-    // 1. M\u00e9dias de VAs Calculadas ou Mock Proporcional
+    const [correlationMetric, setCorrelationMetric] = useState('grade'); // 'grade' ou 'attendance'
+    // 1. Médias de VAs Calculadas ou Mock Proporcional
     const avgGlobal = workspace.overview?.avg_grade || 7.0;
     const avgAttendance = workspace.overview?.avg_attendance || 80.0;
 
@@ -1647,16 +1701,18 @@ function OverviewPanel({ workspace, isCoordinator }) {
     const sortedWorstClasses = [...classes].sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0)).slice(0, 5);
     const correlationData = sortedWorstClasses.map(c => ({
         turma: c.label.split(' • ')[0],
-        presenca: parseFloat(c.avg_attendance.toFixed(1)),
-        nota: parseFloat(c.avg_grade.toFixed(2)),
+        presenca_real: parseFloat((c.real_avg_attendance !== undefined ? c.real_avg_attendance : c.avg_attendance).toFixed(1)),
+        presenca_prevista: parseFloat(c.avg_attendance.toFixed(1)),
+        nota_real: parseFloat((c.real_avg_grade !== undefined ? c.real_avg_grade : c.avg_grade).toFixed(2)),
+        nota_prevista: parseFloat(c.avg_grade.toFixed(2)),
     }));
 
     const chartCorrelation = correlationData.length > 0 ? correlationData : [
-        { turma: "Cálculo I", presenca: 64.2, nota: 4.8 },
-        { turma: "Algoritmos", presenca: 71.0, nota: 5.3 },
-        { turma: "Física I", presenca: 73.5, nota: 5.7 },
-        { turma: "Arq. Computadores", presenca: 74.8, nota: 6.1 },
-        { turma: "Álgebra Linear", presenca: 76.0, nota: 6.2 },
+        { turma: "Cálculo I", presenca_real: 60.5, presenca_prevista: 64.2, nota_real: 4.5, nota_prevista: 4.8 },
+        { turma: "Algoritmos", presenca_real: 68.0, presenca_prevista: 71.0, nota_real: 4.9, nota_prevista: 5.3 },
+        { turma: "Física I", presenca_real: 70.0, presenca_prevista: 73.5, nota_real: 5.2, nota_prevista: 5.7 },
+        { turma: "Arq. Computadores", presenca_real: 72.0, presenca_prevista: 74.8, nota_real: 5.8, nota_prevista: 6.1 },
+        { turma: "Álgebra Linear", presenca_real: 74.0, presenca_prevista: 76.0, nota_real: 6.0, nota_prevista: 6.2 },
     ];
 
     // 4. Rankings das Disciplinas
@@ -1670,59 +1726,164 @@ function OverviewPanel({ workspace, isCoordinator }) {
         .slice(0, 5);
 
     const bestDisciplines = rankedBest.length > 0 ? rankedBest : [
-        { subject: "Gestão de Projetos de TI", avg_grade: 8.8, avg_attendance: 92.4, avg_risk: 0.08 },
-        { subject: "Desenvolvimento Frontend Avançado", avg_grade: 8.4, avg_attendance: 89.1, avg_risk: 0.12 },
-        { subject: "Programação Orientada a Objetos", avg_grade: 7.9, avg_attendance: 85.3, avg_risk: 0.18 },
-        { subject: "Banco de Dados I", avg_grade: 7.6, avg_attendance: 82.0, avg_risk: 0.22 },
-        { subject: "Introdução à Engenharia de Software", avg_grade: 7.5, avg_attendance: 84.5, avg_risk: 0.20 },
+        { subject: "Gestão de Projetos de TI", avg_grade: 8.8, avg_attendance: 92.4, avg_risk: 0.08, real_avg_grade: 8.5, real_avg_attendance: 91.0, real_avg_risk: 0.10, is_completed: false },
+        { subject: "Desenvolvimento Frontend Avançado", avg_grade: 8.4, avg_attendance: 89.1, avg_risk: 0.12, real_avg_grade: 8.2, real_avg_attendance: 88.0, real_avg_risk: 0.14, is_completed: false },
+        { subject: "Programação Orientada a Objetos", avg_grade: 7.9, avg_attendance: 85.3, avg_risk: 0.18, real_avg_grade: 7.9, real_avg_attendance: 85.3, real_avg_risk: 0.18, is_completed: true },
+        { subject: "Banco de Dados I", avg_grade: 7.6, avg_attendance: 82.0, avg_risk: 0.22, real_avg_grade: 7.2, real_avg_attendance: 80.0, real_avg_risk: 0.25, is_completed: false },
+        { subject: "Introdução à Engenharia de Software", avg_grade: 7.5, avg_attendance: 84.5, avg_risk: 0.20, real_avg_grade: 7.5, real_avg_attendance: 84.5, real_avg_risk: 0.20, is_completed: true },
     ];
 
     const criticalDisciplines = rankedCritical.length > 0 ? rankedCritical : [
-        { subject: "Cálculo Diferencial e Integral I", avg_grade: 4.8, avg_attendance: 64.2, avg_risk: 0.74 },
-        { subject: "Estruturas de Dados e Algoritmos", avg_grade: 5.3, avg_attendance: 71.0, avg_risk: 0.62 },
-        { subject: "Física Teórica e Experimental", avg_grade: 5.7, avg_attendance: 73.5, avg_risk: 0.58 },
-        { subject: "Arquitetura e Organização de Computadores", avg_grade: 6.1, avg_attendance: 74.8, avg_risk: 0.49 },
-        { subject: "Álgebra Linear e Geometria Analítica", avg_grade: 6.2, avg_attendance: 76.0, avg_risk: 0.44 },
+        { subject: "Cálculo Diferencial e Integral I", avg_grade: 4.8, avg_attendance: 64.2, avg_risk: 0.74, real_avg_grade: 4.5, real_avg_attendance: 62.0, real_avg_risk: 0.80, is_completed: false },
+        { subject: "Estruturas de Dados e Algoritmos", avg_grade: 5.3, avg_attendance: 71.0, avg_risk: 0.62, real_avg_grade: 5.0, real_avg_attendance: 69.0, real_avg_risk: 0.68, is_completed: false },
+        { subject: "Física Teórica e Experimental", avg_grade: 5.7, avg_attendance: 73.5, avg_risk: 0.58, real_avg_grade: 5.7, real_avg_attendance: 73.5, real_avg_risk: 0.58, is_completed: true },
+        { subject: "Arquitetura e Organização de Computadores", avg_grade: 6.1, avg_attendance: 74.8, avg_risk: 0.49, real_avg_grade: 5.8, real_avg_attendance: 72.0, real_avg_risk: 0.55, is_completed: false },
+        { subject: "Álgebra Linear e Geometria Analítica", avg_grade: 6.2, avg_attendance: 76.0, avg_risk: 0.44, real_avg_grade: 6.2, real_avg_attendance: 76.0, real_avg_risk: 0.44, is_completed: true },
     ];
 
-    // Card de Risco Original por Turma
-    const originalChartData = workspace.analysis_data.high_risk_classes.slice(0, 6).map((item) => ({
-        turma: item.label,
-        risco: Math.round(item.risk_score * 100),
-        nota: item.avg_grade,
-        presenca: item.avg_attendance,
+    // 5. Diagnóstico de Causa Raiz e Fatores de Risco
+    const rawFactors = workspace.analysis_data?.risk_factors || [];
+    
+    // Normalizar nomes dos fatores para português do Brasil mais amigável
+    const factorLabels = {
+        "nota": "Desempenho em Notas",
+        "primeira_avaliacao": "Primeira Avaliação (VA1)",
+        "presenca": "Frequência Escolar",
+        "queda_presenca": "Declínio de Assiduidade",
+        "atividade": "Atividade Acadêmica",
+        "oscilacao": "Volatilidade de Notas",
+        "aprovacao": "Índice de Reprovação",
+        "historico": "Histórico de Reprovações",
+        "carga": "Carga de Disciplinas",
+        "dificuldade_disciplina": "Dificuldade da Matéria",
+        "trabalho": "Conciliação de Trabalho",
+    };
+
+    const baseFactors = rawFactors.length > 0 ? rawFactors.map(f => ({
+        ...f,
+        label: factorLabels[f.key] || f.label,
+    })) : [
+        { label: "Desempenho em Notas", key: "nota", avg_contribution_percent: 32.5 },
+        { label: "Frequência Escolar", key: "presenca", avg_contribution_percent: 28.0 },
+        { label: "Histórico de Reprovações", key: "historico", avg_contribution_percent: 18.5 },
+        { label: "Conciliação de Trabalho", key: "trabalho", avg_contribution_percent: 12.0 },
+        { label: "Atividade Acadêmica", key: "atividade", avg_contribution_percent: 9.0 },
+    ];
+
+    // Normalizar os top 5 fatores para que a soma exibida no gráfico da página inicial seja exatamente 100%
+    const top5Raw = baseFactors.slice(0, 5);
+    const sumTop5 = top5Raw.reduce((sum, f) => sum + (f.avg_contribution_percent || 0), 0);
+    const riskFactors = top5Raw.map(f => ({
+        ...f,
+        avg_contribution_percent: sumTop5 > 0 ? Number(((f.avg_contribution_percent / sumTop5) * 100).toFixed(2)) : 0
     }));
-    const topTopics = workspace.analysis_data.risk_topics.slice(0, 4);
+
+    const primaryFactorKey = riskFactors[0]?.key || "nota";
+    let recommendations = [];
+    
+    switch(primaryFactorKey) {
+        case 'presenca':
+        case 'queda_presenca':
+            recommendations = [
+                {
+                    title: "Flexibilizar a Presença",
+                    description: "Faltar nas aulas é o maior motivo de alerta por aqui. Que tal liberar gravações das aulas ou dar uma folga nos prazos das tarefas para quem está com a rotina muito apertada?"
+                },
+                {
+                    title: "Mandar um Alô Amigável",
+                    description: "Envie um alô amigável pelo WhatsApp ou e-mail para quem anda sumido. Conversar cedo ajuda muito a entender o que está acontecendo e traz o aluno de volta antes que ele desista."
+                },
+                {
+                    title: "Ajustar os Dias de Atividades",
+                    description: "Dê uma olhada se as faltas acontecem mais em dias específicos (como sextas ou vésperas de feriado). Tente concentrar as avaliações presenciais importantes nos dias de maior presença."
+                }
+            ];
+            break;
+        case 'nota':
+        case 'primeira_avaliacao':
+        case 'aprovacao':
+        case 'historico':
+            recommendations = [
+                {
+                    title: "Grupos de Estudo e Reforço",
+                    description: "O calcanhar de aquiles da turma são as notas baixas. Juntar a galera para criar grupos de estudo ou organizar plantões rápidos de tira-dúvidas ajuda muito a destravar o aprendizado."
+                },
+                {
+                    title: "Desafios Curtinhos e Interativos",
+                    description: "Passe questionários ou desafios rápidos pela internet para fixar o assunto. Dar pequenos pontos extras pela participação estimula a turma a estudar e melhora as notas de forma geral."
+                },
+                {
+                    title: "Revisão de Conceitos Básicos",
+                    description: "Para quem já reprovou antes nessa matéria, vale a pena fazer uma revisão rápida de conteúdos básicos antes de avançar para tópicos complexos. Isso dá mais confiança para continuar."
+                }
+            ];
+            break;
+        case 'atividade':
+            recommendations = [
+                {
+                    title: "Simplificar os Trabalhos",
+                    description: "O pessoal está com dificuldades para entregar as tarefas. Tente deixar as instruções dos projetos mais diretas e focar no que realmente importa para a avaliação."
+                },
+                {
+                    title: "Lembretes Rápidos de Prazos",
+                    description: "Mande um lembrete rápido 48 horas antes do prazo final do trabalho. Um toque rápido ajuda a combater a procrastinação e reduz bastante o número de tarefas esquecidas."
+                }
+            ];
+            break;
+        case 'trabalho':
+            recommendations = [
+                {
+                    title: "Flexibilidade para quem Trabalha",
+                    description: "Vários alunos da turma dividem o tempo entre o trabalho e a faculdade. Evite marcar reuniões obrigatórias em grupo fora do horário de aula e incentive dinâmicas flexíveis para projetos em equipe."
+                },
+                {
+                    title: "Prazos nos Finais de Semana",
+                    description: "Que tal deixar os prazos de entrega mais perto do final do domingo? Isso dá uma folga de tempo preciosa para quem passa o dia trabalhando e só consegue estudar à noite."
+                }
+            ];
+            break;
+        default:
+            recommendations = [
+                {
+                    title: "Papo Rápido Individual",
+                    description: "Tire cinco minutinhos para conversar de forma leve com os alunos mais críticos. Esse contato inicial ajuda a entender se há algum problema pessoal atrapalhando antes que as notas caiam de vez."
+                },
+                {
+                    title: "Termômetro do Ritmo da Aula",
+                    description: "Peça um feedback rápido e anônimo da turma no final da aula para saber se o ritmo do conteúdo está muito rápido ou difícil. Isso ajuda a calibrar a próxima aula de um jeito bem prático."
+                }
+            ];
+    }
 
     return (
         <div className="space-y-6">
             {/* Bloco de Estatísticas Robustas Gerais */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <MetricCard 
-                    title="M\u00e9dia Geral - 1ª VA" 
+                    title="Média Geral - 1ª VA" 
                     value={finalVA1.toFixed(2)} 
                     helper="Primeiro bloco avaliativo" 
                     icon={CheckCircle2} 
                     tone="blue" 
                 />
                 <MetricCard 
-                    title="M\u00e9dia Geral - 2ª VA" 
+                    title="Projeção de Média - 2ª VA ✨" 
                     value={finalVA2.toFixed(2)} 
-                    helper="Segundo bloco avaliativo" 
+                    helper="Segundo bloco avaliativo (projetado)" 
                     icon={CheckCircle2} 
                     tone="indigo" 
                 />
                 <MetricCard 
-                    title="M\u00e9dia Geral - 3ª VA" 
+                    title="Projeção de Média - 3ª VA ✨" 
                     value={finalVA3.toFixed(2)} 
-                    helper="Terceiro bloco avaliativo" 
+                    helper="Terceiro bloco avaliativo (projetado)" 
                     icon={CheckCircle2} 
                     tone="purple" 
                 />
                 <MetricCard 
-                    title="Frequência M\u00e9dia" 
+                    title="Frequência Média Projetada ✨" 
                     value={formatPercent(avgAttendance)} 
-                    helper="Presença global consolidada" 
+                    helper="Frequência final estimada discente" 
                     icon={Users} 
                     tone="emerald" 
                 />
@@ -1732,8 +1893,8 @@ function OverviewPanel({ workspace, isCoordinator }) {
             <div className="grid gap-6 lg:grid-cols-2">
                 <Card>
                     <CardHeader
-                        title="Desempenho por VA - Melhores Turmas"
-                        subtitle="M\u00e9dias de 1ª (azul), 2ª (laranja) e 3ª VA (roxo) lado a lado das 5 turmas com melhores notas."
+                        title="Projeção de Desempenho por VA - Melhores Turmas ✨"
+                        subtitle="Projeção e médias da 1ª (real), 2ª (estimada) e 3ª VA (estimada) das turmas com melhores notas."
                         icon={TrendingUp}
                     />
                     <div className="h-80 w-full pt-4">
@@ -1742,11 +1903,11 @@ function OverviewPanel({ workspace, isCoordinator }) {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                 <XAxis dataKey="turma" tick={false} tickLine={false} axisLine={false} />
                                 <YAxis tickLine={false} axisLine={false} fontSize={11} domain={[0, 10]} />
-                                <Tooltip content={<GlobalCustomTooltip />} />
+                                <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                 <Legend />
-                                <Bar dataKey="1ª VA" fill="#2563EB" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="2ª VA" fill="#F97316" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="3ª VA" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="1ª VA" fill="#2563EB" radius={[4, 4, 0, 0]} name="1ª VA (Real)" />
+                                <Bar dataKey="2ª VA" fill="#A78BFA" radius={[4, 4, 0, 0]} name="2ª VA (Prevista ✨)" />
+                                <Bar dataKey="3ª VA" fill="#6D28D9" radius={[4, 4, 0, 0]} name="3ª VA (Prevista ✨)" />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -1754,21 +1915,50 @@ function OverviewPanel({ workspace, isCoordinator }) {
 
                 <Card>
                     <CardHeader
-                        title="Presença e Desempenho - Piores Turmas"
-                        subtitle="M\u00e9dias de notas (barras roxas) e presença (barras verdes) das 5 turmas com maior índice de risco."
+                        title="Tendência de Desempenho e Presença - Turmas Críticas ✨"
+                        subtitle={correlationMetric === 'grade' 
+                            ? "Média de notas real atual vs projeção para o encerramento do período." 
+                            : "Presença média real atual vs projeção para o encerramento do período."}
                         icon={BrainCircuit}
+                        action={
+                            <div className="flex items-center gap-1 rounded-xl bg-bg-secondary/40 p-1">
+                                <button
+                                    onClick={() => setCorrelationMetric('grade')}
+                                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${correlationMetric === 'grade' ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+                                >
+                                    Notas
+                                </button>
+                                <button
+                                    onClick={() => setCorrelationMetric('attendance')}
+                                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${correlationMetric === 'attendance' ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+                                >
+                                    Presença
+                                </button>
+                            </div>
+                        }
                     />
                     <div className="h-80 w-full pt-4">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartCorrelation} margin={{ top: 10, right: -10, left: -20, bottom: 0 }}>
+                            <BarChart data={chartCorrelation} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                                 <XAxis dataKey="turma" tick={false} tickLine={false} axisLine={false} stroke="#64748B" />
-                                <YAxis yAxisId="left" tickLine={false} axisLine={false} fontSize={11} domain={[0, 10]} stroke="#64748B" />
-                                <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} fontSize={11} domain={[0, 100]} stroke="#64748B" />
-                                <Tooltip content={<GlobalCustomTooltip />} />
-                                <Legend />
-                                <Bar yAxisId="left" dataKey="nota" fill="#6A1BFF" radius={[4, 4, 0, 0]} name="M\u00e9dia de Nota (0-10)" />
-                                <Bar yAxisId="right" dataKey="presenca" fill="#10B981" radius={[4, 4, 0, 0]} name="Frequência M\u00e9dia (%)" />
+                                {correlationMetric === 'grade' ? (
+                                    <>
+                                        <YAxis tickLine={false} axisLine={false} fontSize={11} domain={[0, 10]} stroke="#64748B" />
+                                        <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
+                                        <Legend />
+                                        <Bar dataKey="nota_real" fill="#3B82F6" radius={[4, 4, 0, 0]} name="Média de Nota Atual (Real)" />
+                                        <Bar dataKey="nota_prevista" fill="#8B5CF6" radius={[4, 4, 0, 0]} name="Projeção de Nota (Final do Curso) ✨" />
+                                    </>
+                                ) : (
+                                    <>
+                                        <YAxis tickLine={false} axisLine={false} fontSize={11} domain={[0, 100]} stroke="#64748B" />
+                                        <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
+                                        <Legend />
+                                        <Bar dataKey="presenca_real" fill="#10B981" radius={[4, 4, 0, 0]} name="Presença Atual (Real)" />
+                                        <Bar dataKey="presenca_prevista" fill="#047857" radius={[4, 4, 0, 0]} name="Projeção de Presença (Final do Curso) ✨" />
+                                    </>
+                                )}
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -1780,24 +1970,109 @@ function OverviewPanel({ workspace, isCoordinator }) {
                 <Card>
                     <CardHeader
                         title="Melhores Disciplinas"
-                        subtitle="Componentes curriculares com maior média global de aproveitamento (GPAs altos)."
+                        subtitle="Componentes curriculares com maior média global de aproveitamento."
                         icon={CheckCircle2}
                     />
-                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    <div className="space-y-3">
                         {bestDisciplines.map((item, idx) => (
-                            <div key={idx} className="flex items-center justify-between rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-4 transition hover:bg-bg-secondary/40">
+                            <div key={idx} className="flex items-center justify-between rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-4 transition hover:bg-bg-secondary/40 relative hover:z-50">
                                 <div className="flex items-center gap-3">
                                     <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-sm font-semibold text-emerald-700">
                                         #{idx + 1}
                                     </span>
                                     <div>
                                         <p className="text-sm font-semibold text-text-primary">{item.subject}</p>
-                                        <p className="mt-0.5 text-xs text-text-secondary">Frequência M\u00e9dia: {formatPercent(item.avg_attendance)}</p>
+                                        <UiTooltip
+                                            align="start"
+                                            content={
+                                                <div className="space-y-1.5">
+                                                    <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                                        Frequência Escolar
+                                                    </div>
+                                                    <div className="space-y-1 text-[11px] text-slate-400">
+                                                        <div className="flex justify-between gap-4">
+                                                            <span>Frequência Real Atual:</span>
+                                                            <span className="font-semibold text-white">{formatPercent(item.real_avg_attendance !== undefined ? item.real_avg_attendance : item.avg_attendance)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between gap-4 border-t border-slate-900 pt-1">
+                                                            <span>Projeção para o fim do curso ✨:</span>
+                                                            <span className="font-semibold text-emerald-400">{formatPercent(item.avg_attendance)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        >
+                                            <p className="mt-0.5 text-xs text-text-secondary cursor-help">
+                                                Presença Projetada: {formatPercent(item.avg_attendance)}
+                                            </p>
+                                        </UiTooltip>
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <Badge variant="success">GPA: {Number(item.avg_grade || 0).toFixed(2)}</Badge>
-                                    <p className="mt-1 text-[11px] text-text-tertiary">Risco Geral: {formatRisk(item.avg_risk)}</p>
+                                <div className="flex flex-col items-end gap-2.5 justify-center min-w-[120px]">
+                                    <UiTooltip
+                                        align="end"
+                                        position={idx === bestDisciplines.length - 1 ? "top" : "bottom"}
+                                        content={
+                                            item.is_completed ? (
+                                                <div className="space-y-1.5">
+                                                    <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                                        Média Consolidada
+                                                    </div>
+                                                    <p className="text-slate-400 text-[11px] leading-relaxed">
+                                                        Todas as avaliações (1ª, 2ª e 3ª VA) já aconteceram. Média real consolidada.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+                                                        Composição da Média
+                                                    </div>
+                                                    <div className="space-y-1 text-[11px] text-slate-400">
+                                                        <div className="flex justify-between gap-4">
+                                                            <span>1ª VA (Real):</span>
+                                                            <span className="font-semibold text-white">{Number(item.real_avg_grade !== undefined ? item.real_avg_grade : item.avg_grade * 0.95).toFixed(2)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between gap-4 border-t border-slate-900 pt-1">
+                                                            <span>2ª e 3ª VA (Projeção IA ✨):</span>
+                                                            <span className="font-semibold text-indigo-400">{Number(item.avg_grade).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )
+                                        }
+                                    >
+                                        <Badge variant="success" className="cursor-help">
+                                            Média: {Number(item.avg_grade || 0).toFixed(2)}
+                                        </Badge>
+                                    </UiTooltip>
+                                    <UiTooltip
+                                        align="end"
+                                        content={
+                                            <div className="space-y-2">
+                                                <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                    <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                                                    Índice de Risco
+                                                </div>
+                                                <div className="space-y-1 text-[11px] text-slate-400">
+                                                    <div className="flex justify-between gap-4">
+                                                        <span>Risco Real Atual:</span>
+                                                        <span className="font-semibold text-white">{formatRisk(item.real_avg_risk !== undefined ? item.real_avg_risk : item.avg_risk)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between gap-4 border-t border-slate-900 pt-1">
+                                                        <span>Projeção para o fim do curso ✨:</span>
+                                                        <span className="font-semibold text-amber-400">{formatRisk(item.avg_risk)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    >
+                                        <p className="text-[11px] text-text-tertiary cursor-help">
+                                            Risco Projetado: {formatRisk(item.avg_risk)}
+                                        </p>
+                                    </UiTooltip>
                                 </div>
                             </div>
                         ))}
@@ -1810,21 +2085,106 @@ function OverviewPanel({ workspace, isCoordinator }) {
                         subtitle="Componentes com menores médias gerais e maiores índices de risco combinado."
                         icon={AlertTriangle}
                     />
-                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    <div className="space-y-3">
                         {criticalDisciplines.map((item, idx) => (
-                            <div key={idx} className="flex items-center justify-between rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-4 transition hover:bg-bg-secondary/40">
+                            <div key={idx} className="flex items-center justify-between rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-4 transition hover:bg-bg-secondary/40 relative hover:z-50">
                                 <div className="flex items-center gap-3">
                                     <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-red-100 text-sm font-semibold text-red-700">
                                         #{idx + 1}
                                     </span>
                                     <div>
                                         <p className="text-sm font-semibold text-text-primary">{item.subject}</p>
-                                        <p className="mt-0.5 text-xs text-text-secondary">Frequência M\u00e9dia: {formatPercent(item.avg_attendance)}</p>
+                                        <UiTooltip
+                                            align="start"
+                                            content={
+                                                <div className="space-y-1.5">
+                                                    <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                                        Frequência Escolar
+                                                    </div>
+                                                    <div className="space-y-1 text-[11px] text-slate-400">
+                                                        <div className="flex justify-between gap-4">
+                                                            <span>Frequência Real Atual:</span>
+                                                            <span className="font-semibold text-white">{formatPercent(item.real_avg_attendance !== undefined ? item.real_avg_attendance : item.avg_attendance)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between gap-4 border-t border-slate-900 pt-1">
+                                                            <span>Projeção para o fim do curso ✨:</span>
+                                                            <span className="font-semibold text-emerald-400">{formatPercent(item.avg_attendance)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        >
+                                            <p className="mt-0.5 text-xs text-text-secondary cursor-help">
+                                                Presença Projetada: {formatPercent(item.avg_attendance)}
+                                            </p>
+                                        </UiTooltip>
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <Badge variant="danger">M\u00e9dia: {Number(item.avg_grade || 0).toFixed(2)}</Badge>
-                                    <p className="mt-1 text-[11px] text-danger font-semibold">Risco Geral: {formatRisk(item.avg_risk)}</p>
+                                <div className="flex flex-col items-end gap-2.5 justify-center min-w-[120px]">
+                                    <UiTooltip
+                                        align="end"
+                                        position={idx === criticalDisciplines.length - 1 ? "top" : "bottom"}
+                                        content={
+                                            item.is_completed ? (
+                                                <div className="space-y-1.5">
+                                                    <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                                        Média Consolidada
+                                                    </div>
+                                                    <p className="text-slate-400 text-[11px] leading-relaxed">
+                                                        Todas as avaliações (1ª, 2ª e 3ª VA) já aconteceram. Média real consolidada.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+                                                        Composição da Média
+                                                    </div>
+                                                    <div className="space-y-1 text-[11px] text-slate-400">
+                                                        <div className="flex justify-between gap-4">
+                                                            <span>1ª VA (Real):</span>
+                                                            <span className="font-semibold text-white">{Number(item.real_avg_grade !== undefined ? item.real_avg_grade : item.avg_grade * 0.95).toFixed(2)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between gap-4 border-t border-slate-900 pt-1">
+                                                            <span>2ª e 3ª VA (Projeção IA ✨):</span>
+                                                            <span className="font-semibold text-indigo-400">{Number(item.avg_grade).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )
+                                        }
+                                    >
+                                        <Badge variant="danger" className="cursor-help">
+                                            Média: {Number(item.avg_grade || 0).toFixed(2)}
+                                        </Badge>
+                                    </UiTooltip>
+                                    <UiTooltip
+                                        align="end"
+                                        content={
+                                            <div className="space-y-2">
+                                                <div className="font-semibold text-[13px] border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                                                    <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                                                    Índice de Risco
+                                                </div>
+                                                <div className="space-y-1 text-[11px] text-slate-400">
+                                                    <div className="flex justify-between gap-4">
+                                                        <span>Risco Real Atual:</span>
+                                                        <span className="font-semibold text-white">{formatRisk(item.real_avg_risk !== undefined ? item.real_avg_risk : item.avg_risk)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between gap-4 border-t border-slate-900 pt-1">
+                                                        <span>Projeção para o fim do curso ✨:</span>
+                                                        <span className="font-semibold text-amber-400">{formatRisk(item.avg_risk)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    >
+                                        <p className="text-[11px] text-danger font-semibold cursor-help">
+                                            Risco Projetado: {formatRisk(item.avg_risk)}
+                                        </p>
+                                    </UiTooltip>
                                 </div>
                             </div>
                         ))}
@@ -1832,75 +2192,52 @@ function OverviewPanel({ workspace, isCoordinator }) {
                 </Card>
             </div>
 
-            {/* Seções Originais e Leituras Prioritárias */}
-            <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-                <Card>
+            {/* Diagnóstico de Causa Raiz & Ações Preventivas Recomendadas */}
+            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr] items-stretch">
+                <Card className="flex flex-col h-full">
                     <CardHeader
-                        title="Mapa Executivo de Risco por Turma"
-                        subtitle="Leitura priorizada das turmas com maior índice estimado de criticidade acadêmica (passe o mouse nas barras para detalhes)."
+                        title="Diagnóstico da Causa Raiz (IA) ✨"
+                        subtitle="Impacto estatístico das variáveis que mais contribuem para a composição de risco discente."
                         icon={BrainCircuit}
                     />
-                    <div className="h-80">
+                    <div className="flex-1 min-h-[380px] w-full pt-4">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={originalChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                <defs>
-                                    <linearGradient id="gradientRiscoExecutivo" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#EF4444" stopOpacity={0.9} />
-                                        <stop offset="60%" stopColor="#8F5BFF" stopOpacity={0.8} />
-                                        <stop offset="100%" stopColor="#6A1BFF" stopOpacity={0.7} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                                <XAxis dataKey="turma" tick={false} tickLine={false} axisLine={false} />
-                                <YAxis tickLine={false} axisLine={false} fontSize={12} width={34} />
-                                <Tooltip content={<GlobalCustomTooltip />} />
-                                <Bar dataKey="risco" fill="url(#gradientRiscoExecutivo)" radius={[10, 10, 0, 0]} name="Índice de Risco (%)" />
+                            <BarChart 
+                                data={riskFactors.slice(0, 5)} 
+                                layout="vertical" 
+                                margin={{ top: 10, right: 30, left: 60, bottom: 5 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+                                <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} domain={[0, 100]} tickFormatter={(val) => `${val}%`} />
+                                <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} fontSize={11} width={130} stroke="#64748B" />
+                                <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
+                                <Bar dataKey="avg_contribution_percent" fill="#6366f1" radius={[0, 8, 8, 0]} name="Impacto no Risco (%)">
+                                    {riskFactors.slice(0, 5).map((entry, index) => {
+                                        const colors = ['#6366f1', '#8b5cf6', '#a78bfa', '#ec4899', '#f43f5e'];
+                                        return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                                    })}
+                                </Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
-                    {/* Lista das disciplinas críticas abaixo do gráfico em duas colunas */}
-                    <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-border-subtle pt-6">
-                        {originalChartData.map((item, idx) => (
-                            <div key={idx} className="flex items-center justify-between rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-4 transition hover:bg-bg-secondary/40">
-                                <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-sm font-semibold text-indigo-700 flex-shrink-0">
-                                        #{idx + 1}
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-semibold text-text-primary truncate" title={item.turma}>{item.turma}</p>
-                                        <p className="mt-0.5 text-xs text-text-secondary">
-                                            M\u00e9dia: {Number(item.nota || 0).toFixed(2)} • Presen\u00e7a: {formatPercent(item.presenca)}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="ml-2 flex-shrink-0">
-                                    <Badge variant={getRiskVariant(item.risco >= 75 ? 'critical' : item.risco >= 58 ? 'high' : item.risco >= 38 ? 'medium' : 'low')}>
-                                        Risco: {item.risco}%
-                                    </Badge>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
                 </Card>
 
-                <Card>
+                <Card className="flex flex-col h-full">
                     <CardHeader
-                        title={isCoordinator ? 'Leituras prioritárias do curso' : 'Leituras prioritárias do professor'}
-                        subtitle="Indicadores integrados combinando notas, presenças, atividades e contexto social."
+                        title="Diretrizes & Ações Recomendadas ✨"
+                        subtitle={`Ações sugeridas pela IA com base no maior driver de risco: ${riskFactors[0]?.label || 'Notas'}.`}
                         icon={Lightbulb}
                     />
-                    <div className="space-y-4">
-                        {topTopics.map((item) => (
-                            <div key={item.id} className="rounded-[22px] border border-border-subtle bg-bg-secondary/45 p-4">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                        <p className="text-sm font-semibold text-text-primary">{item.label}</p>
-                                        <p className="mt-1 text-sm text-text-secondary">{item.type}</p>
-                                    </div>
-                                    <Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge>
+                    <div className="flex-1 space-y-4">
+                        {recommendations.map((item, idx) => (
+                            <div key={idx} className="rounded-[22px] border border-border-subtle bg-bg-secondary/45 p-6 transition hover:bg-bg-secondary/60 shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold flex-shrink-0">
+                                        {idx + 1}
+                                    </span>
+                                    <p className="text-[15px] font-bold text-text-primary">{item.title}</p>
                                 </div>
-                                <p className="mt-3 text-sm leading-6 text-text-secondary">{item.signal}</p>
-                                <p className="mt-2 text-sm text-text-secondary">{item.evidence}</p>
+                                <p className="mt-3 text-sm leading-[1.6] text-text-secondary">{item.description}</p>
                             </div>
                         ))}
                     </div>
@@ -1985,7 +2322,7 @@ function SemesterPanel({ rows }) {
                             <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                             <XAxis dataKey="semester" tickLine={false} axisLine={false} fontSize={12} stroke="#64748B" />
                             <YAxis tickLine={false} axisLine={false} fontSize={12} width={34} stroke="#64748B" />
-                            <Tooltip content={<GlobalCustomTooltip />} />
+                            <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                             <Legend />
                             <Area type="monotone" dataKey="avg_grade" stroke="#0B57D0" strokeWidth={3} fill="url(#gradientGrade)" name="M\u00e9dia de Notas" dot={{ r: 4 }} />
                             <Area type="monotone" dataKey="avg_risk" stroke="#6A1BFF" strokeWidth={3} fill="url(#gradientRisk)" name="Risco de Evasão (%)" dot={{ r: 4 }} />
@@ -2019,48 +2356,74 @@ function SemesterPanel({ rows }) {
 
 function RiskTopicsPanel({ rows }) {
     return (
-        <div className="grid gap-4 xl:grid-cols-2">
-            {rows.map((item) => (
-                <Card key={item.id}>
-                    <div className="flex items-start justify-between gap-4">
-                        <div>
-                            <p className="text-base font-semibold text-text-primary">{item.label}</p>
-                            <p className="mt-1 text-sm text-text-secondary">
-                                {item.type} • {item.semester}
-                            </p>
+        <div className="space-y-4">
+            <Card>
+                <CardHeader 
+                    title="Tópicos de Alerta Preditivo" 
+                    subtitle="Cruzamento de indicadores indicando focos de atenção futuros e quedas estimadas de rendimento."
+                    icon={BrainCircuit}
+                />
+            </Card>
+            <div className="grid gap-4 xl:grid-cols-2">
+                {rows.map((item) => (
+                    <Card key={item.id}>
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <p className="text-base font-semibold text-text-primary">{item.label}</p>
+                                <p className="mt-1 text-sm text-text-secondary">
+                                    {item.type} • {item.semester}
+                                </p>
+                            </div>
+                            <Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge>
                         </div>
-                        <Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge>
-                    </div>
-                    <p className="mt-4 text-sm leading-6 text-text-secondary">{item.signal}</p>
-                    <p className="mt-3 text-sm text-text-secondary">{item.evidence}</p>
-                    <div className="mt-4 rounded-2xl bg-bg-secondary/50 p-4 text-sm leading-6 text-text-secondary">
-                        {item.recommendation}
-                    </div>
-                </Card>
-            ))}
+                        <p className="mt-4 text-sm leading-6 text-text-secondary">{item.signal}</p>
+                        <p className="mt-3 text-sm text-text-secondary">{item.evidence}</p>
+                        <div className="mt-4 rounded-2xl bg-bg-secondary/50 p-4 text-sm leading-6 text-text-secondary">
+                            {item.recommendation}
+                        </div>
+                    </Card>
+                ))}
+            </div>
         </div>
     );
 }
 
 function DisciplinePanel({ rows }) {
     return (
-        <div className="grid gap-4 xl:grid-cols-2">
-            {rows.map((item) => (
-                <Card key={item.id}>
-                    <div className="flex items-center justify-between gap-3">
-                        <div>
-                            <p className="text-base font-semibold text-text-primary">{item.label}</p>
-                            <p className="mt-1 text-sm text-text-secondary">{item.records} registros consolidados</p>
+        <div className="space-y-4">
+            <Card>
+                <CardHeader 
+                    title="Gargalos Preditivos por Disciplina" 
+                    subtitle="Identificação de componentes que apresentam tendência de reprovação e quedas severas de rendimento."
+                    icon={BookOpen}
+                />
+            </Card>
+            <div className="grid gap-4 xl:grid-cols-2">
+                {rows.map((item) => (
+                    <Card key={item.id}>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-base font-semibold text-text-primary">{item.label}</p>
+                                <p className="mt-1 text-sm text-text-secondary">Projeção com base em {item.records} históricos</p>
+                            </div>
+                            <Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge>
                         </div>
-                        <Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge>
-                    </div>
-                    <div className="mt-5 grid grid-cols-2 gap-3">
-                        <StatBox label="Nota media" value={item.avg_grade.toFixed(2)} />
-                        <StatBox label="Presen\u00e7a" value={formatPercent(item.avg_attendance)} />
-                    </div>
-                    <p className="mt-4 text-sm leading-6 text-text-secondary">{item.recommended_focus}</p>
-                </Card>
-            ))}
+                        <div className="mt-5 grid grid-cols-2 gap-3">
+                            <StatBox 
+                                label="Nota média projetada ✨" 
+                                value={item.avg_grade.toFixed(2)} 
+                                helper={item.real_avg_grade !== undefined ? `Atual real: ${item.real_avg_grade.toFixed(2)}` : null}
+                            />
+                            <StatBox 
+                                label="Presença projetada ✨" 
+                                value={formatPercent(item.avg_attendance)} 
+                                helper={item.real_avg_attendance !== undefined ? `Atual real: ${formatPercent(item.real_avg_attendance)}` : null}
+                            />
+                        </div>
+                        <p className="mt-4 text-sm leading-6 text-text-secondary">{item.recommended_focus}</p>
+                    </Card>
+                ))}
+            </div>
         </div>
     );
 }
@@ -2144,6 +2507,7 @@ export function AnalysisCenter() {
     const [intentAllowedAnalyses, setIntentAllowedAnalyses] = useState(null);
 
     const [showIntro, setShowIntro] = useState(false);
+    const [activeDropdownGroup, setActiveDropdownGroup] = useState(null);
 
     const analyses = workspace?.available_analyses || [];
     const hasRecords = Number(workspace?.overview?.total_records || 0) > 0;
@@ -2158,26 +2522,26 @@ export function AnalysisCenter() {
         const sections = [
             {
                 id: 'action',
-                title: 'Acao (o que fazer agora)',
-                description: 'Para agir agora: localizar alunos/turmas com risco e decidir quem priorizar.',
+                title: 'Ações e Intervenções Preditivas',
+                description: 'Identifique riscos e priorize ações para reverter cenários negativos no curso.',
                 analysisIds: ['by_class', 'early_alerts', 'intervention_priorities'],
             },
             {
                 id: 'explain',
-                title: 'Explicação (por que isso esta acontecendo?)',
-                description: 'Entenda os motivos: quais fatores estão puxando o risco e quais perfis de alunos existem.',
+                title: 'Modelagem e Fatores de Risco',
+                description: 'Entenda as variáveis preditivas que mais afetam o desempenho e comportamento futuro.',
                 analysisIds: ['risk_factors', 'student_segments', 'intervention_simulator'],
             },
             {
                 id: 'trend',
-                title: 'Tendencia e previsao',
-                description: 'Veja evolucao e previsao simples para agir cedo antes do risco virar critico.',
+                title: 'Previsões e Projeção de Risco',
+                description: 'Visualize trajetórias preditivas e tendências para agir antes do risco se consolidar.',
                 analysisIds: ['student_trends', 'risk_projection', 'by_semester'],
             },
             {
                 id: 'compare',
-                title: 'Comparacao',
-                description: 'Compare turmas/semestres e visualize rapidamente onde estão os problemas.',
+                title: 'Projeções e Comparativos Preditivos',
+                description: 'Compare simulações futuras de desempenho e identifique gargalos potenciais por disciplina.',
                 analysisIds: ['between_classes', 'discipline_risk', 'heatmap', 'risk_topics', 'discipline_bottlenecks'],
             },
         ];
@@ -2363,6 +2727,15 @@ export function AnalysisCenter() {
         setAtRiskError('');
     }, [selectedSemester, selectedCourse, selectedSubject, selectedAnalysis]);
 
+    useEffect(() => {
+        const group = analysisGroups.find(g => g.analysisIds.includes(selectedAnalysis));
+        if (group) {
+            setActiveDropdownGroup(group.id);
+        } else {
+            setActiveDropdownGroup(null);
+        }
+    }, [selectedAnalysis, analysisGroups]);
+
     function scrollToResults() {
         if (!detailsResultRef.current) return;
         requestAnimationFrame(() => {
@@ -2523,8 +2896,106 @@ export function AnalysisCenter() {
                 <div className="flex items-center gap-3 flex-wrap">
                     {hasRecords && (
                         <div className="relative group">
+                            <Button 
+                                variant="outline" 
+                                icon={Layers3}
+                            >
+                                Análise: {analysesById.get(selectedAnalysis)?.label || 'Resumo'}
+                            </Button>
+                            <div className="absolute right-0 top-full z-50 mt-2 w-80 translate-y-1 opacity-0 pointer-events-none transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
+                                <div className="rounded-[22px] border border-border-subtle bg-white p-3.5 shadow-card max-h-[420px] overflow-y-auto space-y-3">
+                                    {/* Visão Geral Isolada */}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedAnalysis('overview');
+                                            scrollToResults();
+                                        }}
+                                        className={[
+                                            'w-full rounded-xl px-3 py-2.5 text-left transition-all duration-150 flex items-center gap-2',
+                                            selectedAnalysis === 'overview'
+                                                ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                                : 'text-text-secondary hover:bg-bg-secondary hover:text-text-primary'
+                                        ].join(' ')}
+                                    >
+                                        <LayoutDashboard className="h-4 w-4" />
+                                        <span className="text-[12.5px] font-semibold">Resumo Geral</span>
+                                    </button>
+
+                                    {/* Seções/Tópicos Agrupados */}
+                                    <div className="border-t border-slate-100 pt-2.5 space-y-1.5">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary px-2 mb-2">Tópicos de Análise</p>
+                                        {analysisGroups.map((group) => {
+                                            const isExpanded = activeDropdownGroup === group.id;
+                                            const groupHasActiveAnalysis = group.analysisIds.includes(selectedAnalysis);
+                                            
+                                            const groupAnalyses = group.analysisIds
+                                                .map(id => analysesById.get(id))
+                                                .filter(Boolean);
+
+                                            return (
+                                                <div key={group.id} className="border border-slate-100/60 rounded-xl overflow-hidden bg-slate-50/20">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setActiveDropdownGroup(isExpanded ? null : group.id)}
+                                                        className={[
+                                                            'w-full px-3 py-2 text-left flex items-center justify-between transition-colors',
+                                                            groupHasActiveAnalysis 
+                                                                ? 'text-indigo-700 font-semibold' 
+                                                                : 'text-text-primary hover:bg-bg-secondary/40'
+                                                        ].join(' ')}
+                                                    >
+                                                        <span className="text-[12px] font-semibold flex items-center gap-1.5">
+                                                            <span className={`h-1.5 w-1.5 rounded-full ${groupHasActiveAnalysis ? 'bg-indigo-600' : 'bg-slate-400'}`} />
+                                                            {group.title}
+                                                        </span>
+                                                        {isExpanded ? (
+                                                            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                                                        ) : (
+                                                            <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                                                        )}
+                                                    </button>
+                                                    
+                                                    {isExpanded && (
+                                                        <div className="px-2 pb-2 pt-1 border-t border-slate-100/50 bg-white space-y-1">
+                                                            {groupAnalyses.map((item) => {
+                                                                const active = item.id === selectedAnalysis;
+                                                                return (
+                                                                    <button
+                                                                        key={item.id}
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setSelectedAnalysis(item.id);
+                                                                            scrollToResults();
+                                                                        }}
+                                                                        className={[
+                                                                            'w-full rounded-lg px-2.5 py-1.5 text-left transition-all duration-150 flex flex-col gap-0.5',
+                                                                            active
+                                                                                ? 'bg-indigo-50/70 text-indigo-700 font-semibold border-l-2 border-indigo-600 pl-2'
+                                                                                : 'text-text-secondary hover:bg-bg-secondary/40 hover:text-text-primary'
+                                                                        ].join(' ')}
+                                                                    >
+                                                                        <span className="text-[11.5px] font-medium">{item.label}</span>
+                                                                        {item.description && (
+                                                                            <span className="text-[9.5px] opacity-75 line-clamp-1">{item.description}</span>
+                                                                        )}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {hasRecords && (
+                        <div className="relative group">
                             <Button variant="outline" icon={Filter} aria-label="Filtros" />
-                            <div className="absolute right-0 top-full z-50 mt-2 w-[min(520px,calc(100vw-2rem))] translate-y-1 opacity-0 transition group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
+                            <div className="absolute right-0 top-full z-50 mt-2 w-[min(520px,calc(100vw-2rem))] translate-y-1 opacity-0 pointer-events-none transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
                                 <div className="rounded-[22px] border border-border-subtle bg-white p-4 shadow-card">
                                     <div className="grid gap-4 md:grid-cols-3">
                                         <FilterSelect label="Semestre" value={selectedSemester} onChange={setSelectedSemester} options={workspace?.filters?.semesters || []} />
@@ -2608,8 +3079,8 @@ export function AnalysisCenter() {
                         )}
                         {selectedAnalysis === 'between_classes' && (
                             <BetweenClassesPanel
-                                title="Análise entre turmas"
-                                subtitle="Selecione duas turmas do seu recorte para comparar."
+                                title="Comparativo Preditivo entre Turmas"
+                                subtitle="Selecione duas turmas do seu recorte para simular e comparar projeções."
                                 rows={filteredAnalysisData?.between_classes || workspace.analysis_data.between_classes}
                             />
                         )}

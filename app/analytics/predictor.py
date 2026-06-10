@@ -300,9 +300,18 @@ class PartialSemesterPredictor:
         normalized = {str(k).upper().strip(): v for k, v in grades.items()}
 
         from app.historical.utils import _coerce_grade
-        va1_real = _coerce_grade(normalized.get("VA1"))
-        va2_real = _coerce_grade(normalized.get("VA2"))
-        va3_real = _coerce_grade(normalized.get("VA3"))
+
+        def _get_grade_alias(*keys):
+            """Busca a nota por múltiplos aliases (ex: VA2 ou P2) no dicionário normalizado."""
+            for k in keys:
+                val = _coerce_grade(normalized.get(k))
+                if val is not None:
+                    return val
+            return None
+
+        va1_real = _get_grade_alias("VA1", "P1", "AV1", "N1", "NOTA1")
+        va2_real = _get_grade_alias("VA2", "P2", "AV2", "N2", "NOTA2")
+        va3_real = _get_grade_alias("VA3", "P3", "AV3", "N3", "NOTA3", "FINAL", "PROJ")
 
         # Determinar VA1 (caso esteja nula, herdamos do GPA ou média)
         va1_val = va1_real if va1_real is not None else (gpa_cum if gpa_cum is not None else 6.0)
@@ -334,9 +343,20 @@ class PartialSemesterPredictor:
             va3_val = va3_real
             is_va3_projected = False
 
+        # Chaves que serão normalizadas e inseridas como VA1/VA2/VA3 — remover para evitar duplicidade
+        _grade_aliases_to_skip = {
+            "VA1", "VA2", "VA3",
+            "P1", "P2", "P3",
+            "AV1", "AV2", "AV3",
+            "N1", "N2", "N3",
+            "NOTA1", "NOTA2", "NOTA3",
+            "FINAL", "PROJ",
+            "VA3 (PROJETADA) ✨", "VA2 (PROJETADA) ✨",
+            "VA3 (PROJETADA)", "VA2 (PROJETADA)",
+        }
         result = {}
         for k, v in grades.items():
-            if str(k).upper().strip() not in ("VA1", "VA2", "VA3", "VA3 (PROJETADA) ✨", "VA2 (PROJETADA) ✨"):
+            if str(k).upper().strip() not in _grade_aliases_to_skip:
                 result[k] = v
 
         result["VA1"] = va1_val

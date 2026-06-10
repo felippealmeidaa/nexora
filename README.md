@@ -109,7 +109,7 @@ Configure no minimo:
 
 ```env
 SECRET_KEY=defina-um-segredo-forte
-DATABASE_URL=sqlite:///./academico.db
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nexora
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ACCESS_COOKIE_NAME=nexora_access
 REFRESH_COOKIE_NAME=nexora_refresh
@@ -119,10 +119,18 @@ SESSION_COOKIE_SAMESITE=lax
 
 Configuracoes importantes:
 
-- `AUTO_CREATE_SCHEMA=false` e o padrao recomendado
+- `AUTO_CREATE_SCHEMA=false` e o padrao recomendado (o banco e gerenciado via Alembic)
 - `SESSION_COOKIE_SECURE=true` deve ser ligado em producao HTTPS
 - `ENABLE_DEMO_BOOTSTRAP=false` por padrao
 - `CREATE_DEFAULT_ADMIN=false` por padrao
+
+### Migração de SQLite para PostgreSQL (Opcional)
+
+Se você possuir um banco de dados legado local `academico.db` (SQLite) e desejar migrar seus dados históricos e usuários cadastrados para o PostgreSQL sem perdas, execute o script utilitário:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.utils.migrate_sqlite_to_postgres
+```
 
 ## Como rodar o sistema manualmente
 

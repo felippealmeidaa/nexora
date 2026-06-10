@@ -128,6 +128,27 @@ class TestAuth:
         after = auth_client.get("/api/auth/me")
         assert after.status_code == 401
 
+    def test_login_rate_limit_and_lockout(self, client):
+        temp_username = f"ratelimit_{_uid}"
+        for i in range(5):
+            resp = client.post("/api/auth/login", json={
+                "identifier": temp_username,
+                "password": "wrongpassword",
+            })
+            assert resp.status_code == 401
+            assert resp.headers.get("X-RateLimit-Limit") == "5"
+            assert int(resp.headers.get("X-RateLimit-Remaining")) == 4 - i
+            
+        resp = client.post("/api/auth/login", json={
+            "identifier": temp_username,
+            "password": "wrongpassword",
+        })
+        assert resp.status_code == 429
+        assert resp.headers.get("X-RateLimit-Limit") == "5"
+        assert resp.headers.get("X-RateLimit-Remaining") == "0"
+        assert "Retry-After" in resp.headers
+        assert int(resp.headers.get("Retry-After")) > 0
+
 
 class TestStudentsAPI:
     def test_create_student(self, auth_client):

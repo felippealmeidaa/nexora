@@ -157,7 +157,7 @@ export function Analytics() {
                                 axisLine={false}
                                 width={30}
                             />
-                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }} />
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
                             <Bar
                                 dataKey="Frequência"
                                 fill="url(#barGradient)"

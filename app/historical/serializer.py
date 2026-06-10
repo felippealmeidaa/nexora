@@ -65,6 +65,7 @@ def _serialize_historical_record(record: HistoricalRecord, matched_student: Stud
         "status_label": status_label,
         "class_key": f"{record.subject or 'Turma sem disciplina'}::{record.period or 'Sem periodo'}::{record.semester or 'Sem semestre'}::{record.course_name or 'Curso nao informado'}",
         "professor_id": record.professor_id,
+        "spreadsheet_id": record.spreadsheet_id,
         "student_id": getattr(matched_student, "id", None),
         "registration_number": getattr(matched_student, "registration_number", None),
         "current_period": getattr(matched_student, "current_period", None),

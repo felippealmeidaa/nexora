@@ -433,3 +433,73 @@ class TestIncompleteSpreadsheet:
         assert isinstance(data["simulated_average"], float)
         assert "simulated_situation" in data
 
+    def test_generate_spreadsheet_ai_analysis(self, professor_client):
+        """Testa o endpoint POST /api/historical-data/spreadsheets/{id}/ai-analysis."""
+        from unittest.mock import patch, PropertyMock
+        with patch("app.services.gemini_service.GeminiInsightsService.is_available", new_callable=PropertyMock) as mock_avail:
+            mock_avail.return_value = False
+
+            # 1. Primeiro realizar upload de uma planilha de teste para gerar dados
+            csv_data = (
+                "aluno,sem_letivo,curso,disciplina,periodo,nota,frequencia\n"
+                "Carlos Drumond,2024-1,Ciencia da Computacao,Estrutura de Dados,2,4.0,70.0\n"
+                "Cecilia Meireles,2024-1,Ciencia da Computacao,Estrutura de Dados,2,9.0,100.0\n"
+                "João Cabral,2024-1,Ciencia da Computacao,Estrutura de Dados,2,5.5,90.0\n"
+            )
+            file_payload = {
+                "file": ("notas_analise_ia.csv", io.BytesIO(csv_data.encode("utf-8")), "text/csv")
+            }
+            resp = professor_client.post("/api/historical-data/upload", files=file_payload)
+            assert resp.status_code == 200
+            sheet_id = resp.json()["spreadsheet_id"]
+
+            # 2. Chamar o endpoint de ai-analysis
+            resp_analysis = professor_client.post(f"/api/historical-data/spreadsheets/{sheet_id}/ai-analysis")
+            assert resp_analysis.status_code == 200
+            data = resp_analysis.json()
+            assert data["success"] is True
+            assert "analysis_report" in data
+            report = data["analysis_report"]
+
+            # Validar se o fallback local gerou a tabela e o template de engajamento
+            assert "Distribuição Preventiva Estimada da Turma" in report
+            assert "Aprovação Provável" in report
+            assert "Risco por Falta" in report or "Risco Crítico" in report
+            assert "Template de Engajamento Coletivo" in report
+            assert "Seu Professor" in report
+
+    def test_generate_spreadsheet_ai_insights(self, professor_client):
+        """Testa o endpoint POST /api/historical-data/spreadsheets/{id}/ai-insights."""
+        from unittest.mock import patch, PropertyMock
+        with patch("app.services.gemini_service.GeminiInsightsService.is_available", new_callable=PropertyMock) as mock_avail:
+            mock_avail.return_value = False
+
+            # 1. Primeiro realizar upload de uma planilha de teste para gerar dados
+            csv_data = (
+                "aluno,sem_letivo,curso,disciplina,periodo,nota,frequencia\n"
+                "Carlos Drumond,2024-1,Ciencia da Computacao,Estrutura de Dados,2,4.0,70.0\n"
+                "Cecilia Meireles,2024-1,Ciencia da Computacao,Estrutura de Dados,2,9.0,100.0\n"
+                "João Cabral,2024-1,Ciencia da Computacao,Estrutura de Dados,2,5.5,90.0\n"
+            )
+            file_payload = {
+                "file": ("notas_insights_ia.csv", io.BytesIO(csv_data.encode("utf-8")), "text/csv")
+            }
+            resp = professor_client.post("/api/historical-data/upload", files=file_payload)
+            assert resp.status_code == 200
+            sheet_id = resp.json()["spreadsheet_id"]
+
+            # 2. Chamar o endpoint de ai-insights
+            resp_insights = professor_client.post(f"/api/historical-data/spreadsheets/{sheet_id}/ai-insights")
+            assert resp_insights.status_code == 200
+            data = resp_insights.json()
+            assert data["success"] is True
+            assert "insights" in data
+            insights = data["insights"]
+
+            # Validar se o fallback local gerou a tabela de distribuição preventiva e o template
+            assert "Distribuição Preventiva Estimada da Turma" in insights
+            assert "Aprovação Provável" in insights
+            assert "Risco por Falta" in insights or "Risco Crítico" in insights
+            assert "Template de Engajamento Coletivo" in insights
+
+

@@ -216,6 +216,18 @@ export function ProfessorDashboard() {
     const academicCourses = profile?.academic_courses || [];
     const totalStudents = subjectStudents.reduce((sum, item) => sum + (item.students?.length || 0), 0);
 
+    const isProjectedActive = useMemo(() => {
+        if (dataSource === 'historical') {
+            if (selectedDashboardSpreadsheetId === 'general' || !selectedDashboardSpreadsheetId) {
+                return !!workspace?.overview?.is_projected;
+            } else {
+                return !singleSpreadsheetData?.is_completed;
+            }
+        } else {
+            return !!overview?.kpis?.is_projected;
+        }
+    }, [dataSource, workspace, selectedDashboardSpreadsheetId, singleSpreadsheetData, overview]);
+
     // Mapeamento dinâmico e reativo baseado na fonte de dados ativa
     const displayedTotalSubjects = useMemo(() => {
         if (dataSource === 'historical') {
@@ -233,10 +245,17 @@ export function ProfessorDashboard() {
 
     const displayedAtRiskCount = useMemo(() => {
         if (dataSource === 'historical') {
-            return workspace?.analysis_data?.by_class?.reduce((sum, cls) => sum + (cls.critical_students || 0), 0) || 0;
+            if (selectedDashboardSpreadsheetId === 'general' || !selectedDashboardSpreadsheetId) {
+                const isProj = !!workspace?.overview?.is_projected;
+                return isProj ? (workspace?.overview?.preventive_risk_count || 0) : (workspace?.analysis_data?.by_class?.reduce((sum, cls) => sum + (cls.critical_students || 0), 0) || 0);
+            } else {
+                const isProj = !singleSpreadsheetData?.is_completed;
+                return isProj ? (singleSpreadsheetData?.preventive_risk_count || 0) : (singleSpreadsheetData?.critical_students || 0);
+            }
         }
-        return overview?.kpis?.at_risk_count || 0;
-    }, [dataSource, overview, workspace]);
+        const isProj = !!overview?.kpis?.is_projected;
+        return isProj ? (overview?.kpis?.preventive_risk_count || 0) : (overview?.kpis?.at_risk_count || 0);
+    }, [dataSource, overview, workspace, selectedDashboardSpreadsheetId, singleSpreadsheetData]);
 
     const displayedCriticalClassesCount = useMemo(() => {
         if (dataSource === 'historical') {
@@ -474,6 +493,29 @@ export function ProfessorDashboard() {
                 </div>
             </Card>
 
+            {isProjectedActive && (
+                <div className="rounded-[24px] border border-indigo-500/30 bg-gradient-to-r from-indigo-500/5 via-purple-500/5 to-pink-500/5 backdrop-blur-md px-6 py-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fade-in mb-6">
+                    <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20 text-indigo-700">
+                            <Sparkles className="h-5 w-5 animate-pulse text-indigo-600" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-indigo-900 tracking-wide uppercase flex items-center gap-1.5">
+                                Monitoramento Preventivo Ativo
+                            </h4>
+                            <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+                                ⚠️ KPIs e médias gerais de notas calculadas via IA Preditiva para fechamento do semestre.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-start md:self-auto flex-shrink-0">
+                        <span className="inline-flex items-center rounded-full bg-indigo-500/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700 border border-indigo-500/30 animate-pulse">
+                            IA Projetada ✨
+                        </span>
+                    </div>
+                </div>
+            )}
+
             {/* CONTEÚDO DINÂMICO DOS MODOS DE DADOS E INSIGHTS */}
             {dataSource === 'real' && (
                 <>
@@ -528,9 +570,14 @@ export function ProfessorDashboard() {
                                     tone="blue"
                                 />
                                 <MetricCard
-                                    title="Casos em alerta"
+                                    title={
+                                        <div className="flex items-center gap-1.5">
+                                            Casos em alerta
+                                            {isProjectedActive && <Sparkles className="h-3.5 w-3.5 text-rose-500 animate-pulse" />}
+                                        </div>
+                                    }
                                     value={loading ? '...' : displayedAtRiskCount}
-                                    helper="Alunos reais com necessidade de intervenção"
+                                    helper={isProjectedActive ? "Risco preventivo projetado por IA ✨" : "Alunos reais com necessidade de intervenção"}
                                     icon={AlertTriangle}
                                     tone="rose"
                                 />
@@ -553,37 +600,53 @@ export function ProfessorDashboard() {
                                     />
                                     {displayedTopAtRisk.length > 0 ? (
                                         <div className="space-y-3">
-                                            {displayedTopAtRisk.slice(0, 8).map((student, index) => (
-                                                <motion.div
-                                                    key={student.student_id}
-                                                    className="grid gap-4 rounded-[22px] border border-border-subtle bg-bg-secondary/50 p-4 lg:grid-cols-[1.45fr_repeat(3,0.55fr)_0.6fr]"
-                                                    initial={{ opacity: 0, y: 8 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    transition={{ delay: index * 0.03 }}
-                                                >
-                                                    <div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setSelectedStudentId(student.student_id)}
-                                                            className="text-left text-sm font-semibold text-text-primary transition-colors hover:text-accent-blue"
-                                                        >
-                                                            {student.student_name}
-                                                        </button>
-                                                        <div className="flex flex-col gap-1 mt-1">
-                                                            <p className="text-[11px] text-text-secondary">Matrícula: {student.registration_number}</p>
-                                                            <p className="text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-0.5 w-max">
-                                                                Curso: {student.course_name || 'Não informado'}
-                                                            </p>
+                                            {displayedTopAtRisk.slice(0, 8).map((student, index) => {
+                                                const isCriticalRisk = student.risk_level === 'high' || student.risk_level === 'critical';
+                                                const shouldHighlight = isProjectedActive && isCriticalRisk;
+                                                return (
+                                                    <motion.div
+                                                        key={student.student_id}
+                                                        className={`grid gap-4 rounded-[22px] border p-4 lg:grid-cols-[1.45fr_repeat(3,0.55fr)_0.6fr] transition-all ${
+                                                            shouldHighlight
+                                                                ? 'border-indigo-500/40 bg-gradient-to-r from-indigo-500/5 to-purple-500/5 shadow-[0_0_12px_-3px_rgba(99,102,241,0.25)]'
+                                                                : 'border-border-subtle bg-bg-secondary/50'
+                                                        }`}
+                                                        initial={{ opacity: 0, y: 8 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        transition={{ delay: index * 0.03 }}
+                                                    >
+                                                        <div>
+                                                            <div className="flex items-center flex-wrap gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setSelectedStudentId(student.student_id)}
+                                                                    className="text-left text-sm font-semibold text-text-primary transition-colors hover:text-accent-blue"
+                                                                >
+                                                                    {student.student_name}
+                                                                </button>
+                                                                {shouldHighlight && (
+                                                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-bold text-indigo-700 border border-indigo-150 animate-pulse ml-2">
+                                                                        <Sparkles className="h-2.5 w-2.5" />
+                                                                        Risco Preventivo IA
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex flex-col gap-1 mt-1">
+                                                                <p className="text-[11px] text-text-secondary">Matrícula: {student.registration_number}</p>
+                                                                <p className="text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-0.5 w-max">
+                                                                    Curso: {student.course_name || 'Não informado'}
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                    <InlineMetric label="GPA" value={student.gpa != null ? Number(student.gpa).toFixed(2) : '--'} />
-                                                    <InlineMetric label="Presença" value={student.attendance_rate != null ? `${Number(student.attendance_rate).toFixed(0)}%` : '--'} />
-                                                    <InlineMetric label="Risco" value={student.risk_score != null ? `${(Number(student.risk_score) * 100).toFixed(0)}%` : '--'} />
-                                                    <div className="flex items-center lg:justify-end">
-                                                        <Badge variant={getRiskVariant(student.risk_level)}>{riskLabels[student.risk_level] || student.risk_level}</Badge>
-                                                    </div>
-                                                </motion.div>
-                                            ))}
+                                                        <InlineMetric label="GPA" value={student.gpa != null ? Number(student.gpa).toFixed(2) : '--'} />
+                                                        <InlineMetric label="Presença" value={student.attendance_rate != null ? `${Number(student.attendance_rate).toFixed(0)}%` : '--'} />
+                                                        <InlineMetric label="Risco" value={student.risk_score != null ? `${(Number(student.risk_score) * 100).toFixed(0)}%` : '--'} />
+                                                        <div className="flex items-center lg:justify-end">
+                                                            <Badge variant={getRiskVariant(student.risk_level)}>{riskLabels[student.risk_level] || student.risk_level}</Badge>
+                                                        </div>
+                                                    </motion.div>
+                                                );
+                                            })}
                                         </div>
                                     ) : (
                                         <EmptyState
@@ -825,37 +888,53 @@ export function ProfessorDashboard() {
                                 />
                                 {displayedTopAtRisk.length > 0 ? (
                                     <div className="space-y-3">
-                                        {displayedTopAtRisk.slice(0, 8).map((student, index) => (
-                                            <motion.div
-                                                key={student.student_id}
-                                                className="grid gap-4 rounded-[22px] border border-border-subtle bg-bg-secondary/50 p-4 lg:grid-cols-[1.45fr_repeat(3,0.55fr)_0.6fr]"
-                                                initial={{ opacity: 0, y: 8 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                transition={{ delay: index * 0.03 }}
-                                            >
-                                                <div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedStudentId(student.student_id)}
-                                                        className="text-left text-sm font-semibold text-text-primary transition-colors hover:text-accent-blue block"
-                                                    >
-                                                        {student.student_name}
-                                                    </button>
-                                                    <div className="flex flex-col gap-1 mt-1">
-                                                        <p className="text-[11px] text-text-secondary">Matrícula: {student.registration_number}</p>
-                                                        <p className="text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-0.5 w-max">
-                                                            Curso: {student.course_name || 'Não informado'}
-                                                        </p>
+                                        {displayedTopAtRisk.slice(0, 8).map((student, index) => {
+                                            const isCriticalRisk = student.risk_level === 'high' || student.risk_level === 'critical';
+                                            const shouldHighlight = isProjectedActive && isCriticalRisk;
+                                            return (
+                                                <motion.div
+                                                    key={student.student_id}
+                                                    className={`grid gap-4 rounded-[22px] border p-4 lg:grid-cols-[1.45fr_repeat(3,0.55fr)_0.6fr] transition-all ${
+                                                        shouldHighlight
+                                                            ? 'border-indigo-500/40 bg-gradient-to-r from-indigo-500/5 to-purple-500/5 shadow-[0_0_12px_-3px_rgba(99,102,241,0.25)]'
+                                                            : 'border-border-subtle bg-bg-secondary/50'
+                                                    }`}
+                                                    initial={{ opacity: 0, y: 8 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ delay: index * 0.03 }}
+                                                >
+                                                    <div>
+                                                        <div className="flex items-center flex-wrap gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSelectedStudentId(student.student_id)}
+                                                                className="text-left text-sm font-semibold text-text-primary transition-colors hover:text-accent-blue block"
+                                                            >
+                                                                {student.student_name}
+                                                            </button>
+                                                            {shouldHighlight && (
+                                                                <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-bold text-indigo-700 border border-indigo-150 animate-pulse ml-2">
+                                                                    <Sparkles className="h-2.5 w-2.5" />
+                                                                    Risco Preventivo IA
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex flex-col gap-1 mt-1">
+                                                            <p className="text-[11px] text-text-secondary">Matrícula: {student.registration_number}</p>
+                                                            <p className="text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-0.5 w-max">
+                                                                Curso: {student.course_name || 'Não informado'}
+                                                            </p>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <InlineMetric label="GPA" value={student.gpa != null ? Number(student.gpa).toFixed(2) : '--'} />
-                                                <InlineMetric label="Presença" value={student.attendance_rate != null ? `${Number(student.attendance_rate).toFixed(0)}%` : '--'} />
-                                                <InlineMetric label="Risco" value={student.risk_score != null ? `${(Number(student.risk_score) * 100).toFixed(0)}%` : '--'} />
-                                                <div className="flex items-center lg:justify-end">
-                                                    <Badge variant={getRiskVariant(student.risk_level)}>{riskLabels[student.risk_level] || student.risk_level}</Badge>
-                                                </div>
-                                            </motion.div>
-                                        ))}
+                                                    <InlineMetric label="GPA" value={student.gpa != null ? Number(student.gpa).toFixed(2) : '--'} />
+                                                    <InlineMetric label="Presença" value={student.attendance_rate != null ? `${Number(student.attendance_rate).toFixed(0)}%` : '--'} />
+                                                    <InlineMetric label="Risco" value={student.risk_score != null ? `${(Number(student.risk_score) * 100).toFixed(0)}%` : '--'} />
+                                                    <div className="flex items-center lg:justify-end">
+                                                        <Badge variant={getRiskVariant(student.risk_level)}>{riskLabels[student.risk_level] || student.risk_level}</Badge>
+                                                    </div>
+                                                </motion.div>
+                                            );
+                                        })}
                                     </div>
                                 ) : (
                                     <EmptyState
@@ -895,13 +974,25 @@ export function ProfessorDashboard() {
                                                     <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Quantidade de Alunos</p>
                                                     <p className="text-lg font-bold text-text-primary mt-1">{singleSpreadsheetData.records_count} alunos</p>
                                                 </div>
-                                                <div className="rounded-2xl border border-border-subtle bg-bg-secondary/40 p-4">
-                                                    <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Média Geral de Notas</p>
-                                                    <p className="text-lg font-bold text-indigo-600 mt-1">{singleSpreadsheetData.avg_grade != null ? Number(singleSpreadsheetData.avg_grade).toFixed(2) : '--'}</p>
+                                                <div className="rounded-2xl border border-border-subtle bg-bg-secondary/40 p-4 relative overflow-hidden">
+                                                    <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider flex items-center gap-1">
+                                                        Média Geral de Notas
+                                                        {isProjectedActive && <span className="text-xs text-indigo-600 animate-pulse">✨</span>}
+                                                    </p>
+                                                    <p className="text-lg font-bold text-indigo-600 mt-1">
+                                                        {singleSpreadsheetData.avg_grade != null ? Number(singleSpreadsheetData.avg_grade).toFixed(2) : '--'}
+                                                        {isProjectedActive && <span className="text-[10px] font-semibold text-indigo-500 ml-1.5">(Projetada por IA ✨)</span>}
+                                                    </p>
                                                 </div>
-                                                <div className="rounded-2xl border border-border-subtle bg-bg-secondary/40 p-4">
-                                                    <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Frequência Média</p>
-                                                    <p className="text-lg font-bold text-emerald-600 mt-1">{singleSpreadsheetData.avg_attendance != null ? `${Number(singleSpreadsheetData.avg_attendance).toFixed(1)}%` : '--'}</p>
+                                                <div className="rounded-2xl border border-border-subtle bg-bg-secondary/40 p-4 relative overflow-hidden">
+                                                    <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider flex items-center gap-1">
+                                                        Frequência Média
+                                                        {isProjectedActive && <span className="text-xs text-emerald-600 animate-pulse">✨</span>}
+                                                    </p>
+                                                    <p className="text-lg font-bold text-emerald-600 mt-1">
+                                                        {singleSpreadsheetData.avg_attendance != null ? `${Number(singleSpreadsheetData.avg_attendance).toFixed(1)}%` : '--'}
+                                                        {isProjectedActive && <span className="text-[10px] font-semibold text-emerald-500 ml-1.5">(Projetada por IA ✨)</span>}
+                                                    </p>
                                                 </div>
                                             </div>
 

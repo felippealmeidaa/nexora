@@ -321,10 +321,44 @@ def login(data: LoginRequest, request: Request, response: Response, db: Session 
     ).count()
 
     if failed_attempts_by_ip >= 5 or failed_attempts_by_user >= 5:
+        # Calcular tempo restante para expirar a primeira tentativa da janela de 15 min
+        oldest_attempt = None
+        if failed_attempts_by_ip >= 5:
+            oldest_attempt = db.query(LoginAttempt).filter(
+                LoginAttempt.ip_address == client_ip,
+                LoginAttempt.timestamp >= fifteen_minutes_ago,
+                LoginAttempt.is_successful == False
+            ).order_by(LoginAttempt.timestamp.asc()).first()
+
+        if failed_attempts_by_user >= 5:
+            oldest_user_attempt = db.query(LoginAttempt).filter(
+                LoginAttempt.username == identifier,
+                LoginAttempt.timestamp >= fifteen_minutes_ago,
+                LoginAttempt.is_successful == False
+            ).order_by(LoginAttempt.timestamp.asc()).first()
+            if not oldest_attempt or (oldest_user_attempt and oldest_user_attempt.timestamp < oldest_attempt.timestamp):
+                oldest_attempt = oldest_user_attempt
+
+        retry_after = 900  # Default 15 minutos em segundos
+        if oldest_attempt:
+            delta = (oldest_attempt.timestamp + timedelta(minutes=15)) - datetime.utcnow()
+            retry_after = max(1, int(delta.total_seconds()))
+
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Muitas tentativas de login incorretas. Sua conta ou IP foram temporariamente bloqueados. Tente novamente após 15 minutos."
+            detail="Muitas tentativas de login incorretas. Sua conta ou IP foram temporariamente bloqueados. Tente novamente após 15 minutos.",
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": "5",
+                "X-RateLimit-Remaining": "0"
+            }
         )
+
+    # Definir cabeçalhos normais de rate limit restante
+    max_limit = 5
+    remaining = max(0, max_limit - max(failed_attempts_by_ip, failed_attempts_by_user))
+    response.headers["X-RateLimit-Limit"] = str(max_limit)
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
 
     user = _resolve_user_for_login(identifier, db)
     if not user:
@@ -332,17 +366,38 @@ def login(data: LoginRequest, request: Request, response: Response, db: Session 
         db.add(attempt)
         db.commit()
         audit_logger.log_login(identifier, success=False)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Credenciais invalidas",
+            headers={
+                "X-RateLimit-Limit": str(max_limit),
+                "X-RateLimit-Remaining": str(max(0, remaining - 1))
+            }
+        )
 
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="Conta desativada")
+        raise HTTPException(
+            status_code=403, 
+            detail="Conta desativada",
+            headers={
+                "X-RateLimit-Limit": str(max_limit),
+                "X-RateLimit-Remaining": str(remaining)
+            }
+        )
 
     if not verify_password(password, user.hashed_password):
         attempt = LoginAttempt(ip_address=client_ip, username=user.username, is_successful=False)
         db.add(attempt)
         db.commit()
         audit_logger.log_login(identifier, success=False)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Credenciais invalidas",
+            headers={
+                "X-RateLimit-Limit": str(max_limit),
+                "X-RateLimit-Remaining": str(max(0, remaining - 1))
+            }
+        )
 
     # Registrar tentativa bem-sucedida
     attempt = LoginAttempt(ip_address=client_ip, username=user.username, is_successful=True)
