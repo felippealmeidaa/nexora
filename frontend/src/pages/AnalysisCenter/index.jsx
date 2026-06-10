@@ -2507,7 +2507,6 @@ export function AnalysisCenter() {
 
     const [showIntro, setShowIntro] = useState(false);
     const [activeDropdownGroup, setActiveDropdownGroup] = useState(null);
-    const [lockedDropdownGroup, setLockedDropdownGroup] = useState(null);
 
     const analyses = workspace?.available_analyses || [];
     const hasRecords = Number(workspace?.overview?.total_records || 0) > 0;
@@ -2558,15 +2557,15 @@ export function AnalysisCenter() {
             .filter((section) => section.available.length > 0);
     }, [analysesById, intentAllowedAnalyses]);
 
-    // Sincronizar grupo travado com a análise selecionada
+    // Sincronizar grupo ativo com a análise selecionada
     useEffect(() => {
         if (selectedAnalysis && selectedAnalysis !== 'overview') {
             const activeGrp = (analysisGroups || []).find(g => g.analysisIds.includes(selectedAnalysis));
             if (activeGrp) {
-                setLockedDropdownGroup(activeGrp.id);
+                setActiveDropdownGroup(activeGrp.id);
             }
         } else if (selectedAnalysis === 'overview') {
-            setLockedDropdownGroup(null);
+            setActiveDropdownGroup(null);
         }
     }, [selectedAnalysis, analysisGroups]);
 
@@ -2932,20 +2931,18 @@ export function AnalysisCenter() {
                                     <div className="border-t border-slate-100 pt-2.5 space-y-1.5">
                                         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary px-2 mb-2">Tópicos de Análise</p>
                                         {analysisGroups.map((group) => {
-                                            const isExpanded = activeDropdownGroup === group.id || lockedDropdownGroup === group.id;
+                                            const isExpanded = activeDropdownGroup === group.id;
                                             const groupHasActiveAnalysis = group.analysisIds.includes(selectedAnalysis);
                                             const groupAnalyses = group.available;
 
                                             return (
                                                 <div 
                                                     key={group.id} 
-                                                    onMouseEnter={() => setActiveDropdownGroup(group.id)}
-                                                    onMouseLeave={() => setActiveDropdownGroup(null)}
                                                     className="border border-slate-100/60 rounded-xl overflow-hidden bg-slate-50/20 transition-all duration-200"
                                                 >
                                                     <button
                                                         type="button"
-                                                        onClick={() => setLockedDropdownGroup(lockedDropdownGroup === group.id ? null : group.id)}
+                                                        onClick={() => setActiveDropdownGroup(isExpanded ? null : group.id)}
                                                         className={[
                                                             'w-full px-3 py-2 text-left flex items-center justify-between transition-colors',
                                                             groupHasActiveAnalysis 
