@@ -3175,7 +3175,7 @@ export function AnalysisCenter() {
                             <div>
                                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">Criterios do risco</p>
                                 <h2 className="mt-2 text-xl font-semibold text-text-primary">{criteriaModalItem.student_name}</h2>
-                                <p className="mt-2 text-sm leading-6 text-text-secondary">Mostra quais fatores puxaram o risco para cima neste registro.</p>
+                                <p className="mt-2 text-sm leading-6 text-text-secondary">Mostra a participação proporcional de cada fator na composição do risco deste aluno (somando 100%).</p>
                             </div>
                             <Button variant="outline" onClick={() => setCriteriaModalItem(null)}>Fechar</Button>
                         </div>
@@ -3199,29 +3199,37 @@ export function AnalysisCenter() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {Object.entries(criteriaModalItem.risk_breakdown || {})
-                                            .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
-                                            .map(([key, value]) => {
-                                                const labels = {
-                                                    nota: 'Nota',
-                                                    primeira_avaliacao: 'Primeira avaliação',
-                                                    presenca: 'Presença',
-                                                    queda_presenca: 'Queda de presença',
-                                                    atividade: 'Atividade',
-                                                    oscilacao: 'Oscilacao de notas',
-                                                    aprovacao: 'Reprovação',
-                                                    historico: 'Histórico de reprovações',
-                                                    carga: 'Carga de disciplinas',
-                                                    dificuldade_disciplina: 'Dificuldade da disciplina',
-                                                    trabalho: 'Trabalho',
-                                                };
-                                                return (
-                                                    <tr key={key} className="rounded-[22px] border border-border-subtle bg-white shadow-sm">
-                                                        <td className="min-w-[220px] whitespace-normal break-words rounded-l-[20px] px-5 py-5 text-sm font-semibold leading-6 text-text-primary">{labels[key] || key}</td>
-                                                        <td className="rounded-r-[20px] px-5 py-5 text-sm leading-6 text-text-secondary">{(Number(value || 0) * 100).toFixed(1)}%</td>
-                                                    </tr>
-                                                );
-                                            })}
+                                        {(() => {
+                                            const breakdown = criteriaModalItem.risk_breakdown || {};
+                                            const totalContribution = Object.values(breakdown).reduce((sum, val) => sum + Number(val || 0), 0);
+
+                                            return Object.entries(breakdown)
+                                                .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+                                                .map(([key, value]) => {
+                                                    const labels = {
+                                                        nota: 'Nota',
+                                                        primeira_avaliacao: 'Primeira avaliação',
+                                                        presenca: 'Presença',
+                                                        queda_presenca: 'Queda de presença',
+                                                        atividade: 'Atividade',
+                                                        oscilacao: 'Oscilação de notas',
+                                                        aprovacao: 'Reprovação',
+                                                        historico: 'Histórico de reprovações',
+                                                        carga: 'Carga de disciplinas',
+                                                        dificuldade_disciplina: 'Dificuldade da disciplina',
+                                                        trabalho: 'Trabalho',
+                                                    };
+                                                    const relativePercentage = totalContribution > 0 
+                                                        ? (Number(value || 0) / totalContribution) * 100 
+                                                        : 0;
+                                                    return (
+                                                        <tr key={key} className="rounded-[22px] border border-border-subtle bg-white shadow-sm">
+                                                            <td className="min-w-[220px] whitespace-normal break-words rounded-l-[20px] px-5 py-5 text-sm font-semibold leading-6 text-text-primary">{labels[key] || key}</td>
+                                                            <td className="rounded-r-[20px] px-5 py-5 text-sm leading-6 text-text-secondary">{relativePercentage.toFixed(1)}%</td>
+                                                        </tr>
+                                                    );
+                                                });
+                                        })()}
                                     </tbody>
                                 </table>
                             </div>
