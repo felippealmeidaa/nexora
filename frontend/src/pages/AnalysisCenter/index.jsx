@@ -2475,7 +2475,7 @@ export function AnalysisCenter() {
     const { user } = useAuth();
     const role = user?.role?.toLowerCase();
     const isCoordinator = role === 'coordinator';
-    const historyRoute = isProfessorLikeRole(role) ? buildRolePath(role, 'historical-data') : '/coordinator/dashboard';
+    const historyRoute = isProfessorLikeRole(role) ? buildRolePath(role, 'historical-upload') : '/coordinator/dashboard';
     const [searchParams, setSearchParams] = useSearchParams();
     const location = useLocation();
 
