@@ -1377,6 +1377,7 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
 function BetweenClassesPanel({ title, subtitle, rows }) {
     const [classAId, setClassAId] = useState('');
     const [classBId, setClassBId] = useState('');
+    const [comparisonTab, setComparisonTab] = useState('predicted'); // 'predicted' ou 'real'
 
     useEffect(() => {
         if (!rows?.length) {
@@ -1404,15 +1405,17 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
 
     const comparisonRows = useMemo(() => {
         if (!classA || !classB) return [];
-        const metrics = [
-            { id: 'risk', label: 'Índice de risco projetado ✨', a: classA.risk_score, b: classB.risk_score, formatter: formatRisk, better: 'lower' },
+
+        const metrics = comparisonTab === 'predicted' ? [
+            { id: 'risk', label: 'Índice de risco projetado', a: classA.risk_score, b: classB.risk_score, formatter: formatRisk, better: 'lower' },
+            { id: 'grade', label: 'Nota média projetada', a: classA.avg_grade, b: classB.avg_grade, formatter: (v) => Number(v || 0).toFixed(2), better: 'higher' },
+            { id: 'attendance', label: 'Presença média projetada', a: classA.avg_attendance, b: classB.avg_attendance, formatter: formatPercent, better: 'higher' },
+        ] : [
             { id: 'real_risk', label: 'Índice de risco real atual', a: classA.real_avg_risk, b: classB.real_avg_risk, formatter: formatRisk, better: 'lower' },
-            { id: 'grade', label: 'Nota média projetada ✨', a: classA.avg_grade, b: classB.avg_grade, formatter: (v) => Number(v || 0).toFixed(2), better: 'higher' },
             { id: 'real_grade', label: 'Nota média real atual', a: classA.real_avg_grade, b: classB.real_avg_grade, formatter: (v) => Number(v || 0).toFixed(2), better: 'higher' },
-            { id: 'attendance', label: 'Presença média projetada ✨', a: classA.avg_attendance, b: classB.avg_attendance, formatter: formatPercent, better: 'higher' },
             { id: 'real_attendance', label: 'Presença média real atual', a: classA.real_avg_attendance, b: classB.real_avg_attendance, formatter: formatPercent, better: 'higher' },
-            { id: 'activity', label: 'Atividade média', a: classA.avg_activity, b: classB.avg_activity, formatter: formatPercent, better: 'higher' },
-            { id: 'working', label: 'Trabalho', a: classA.working_share, b: classB.working_share, formatter: formatPercent, better: 'lower' },
+            { id: 'activity', label: 'Atividade média recebida', a: classA.avg_activity, b: classB.avg_activity, formatter: formatPercent, better: 'higher' },
+            { id: 'working', label: 'Alunos que trabalham', a: classA.working_share, b: classB.working_share, formatter: formatPercent, better: 'lower' },
         ];
 
         return metrics.map((item) => {
@@ -1426,7 +1429,7 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
                 bTone: bBetter ? 'success' : aBetter ? 'neutral' : 'info',
             };
         });
-    }, [classA, classB]);
+    }, [classA, classB, comparisonTab]);
 
     const comparisonSummary = useMemo(() => {
         if (!classA || !classB || classAId === classBId) return '';
@@ -1435,7 +1438,7 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
         const classBWins = comparisonRows.filter((row) => row.bTone === 'success').length;
 
         if (classAWins === classBWins) {
-            return 'As duas turmas estão equilibradas no recorte atual, entao vale olhar os detalhes de risco e atividade para decidir onde agir primeiro.';
+            return `No comparativo de ${comparisonTab === 'predicted' ? 'previsões futuras' : 'dados recebidos até o momento'}, as duas turmas estão equilibradas.`;
         }
 
         const winner = classAWins > classBWins ? classA : classB;
@@ -1444,8 +1447,8 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
             classAWins > classBWins ? row.aTone === 'success' : row.bTone === 'success'
         ));
 
-        return `${winner.label} leva vantagem sobre ${loser.label} principalmente por ${String(reason?.label || 'um conjunto mais consistente de indicadores').toLowerCase()}.`;
-    }, [classA, classAId, classB, classBId, comparisonRows]);
+        return `${winner.label} apresenta melhor situação ${comparisonTab === 'predicted' ? 'projetada' : 'atual'} em relação a ${loser.label}, principalmente por conta do melhor resultado em "${String(reason?.label || '').toLowerCase()}".`;
+    }, [classA, classAId, classB, classBId, comparisonRows, comparisonTab]);
 
     return (
         <div className="space-y-6">
@@ -1502,21 +1505,54 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
                         subtitle={`${classA.label} vs ${classB.label}`}
                         icon={BarChart3}
                     />
-                    <div className="mx-6 rounded-[22px] border border-border-subtle bg-bg-secondary/35 px-5 py-4 text-sm text-text-secondary">
-                        <span className="font-semibold text-text-primary">Tendência futura:</span> {comparisonSummary}
+
+                    {/* Abas para selecionar Previsões vs Dados Reais */}
+                    <div className="flex gap-2 border-b border-slate-100 pb-3 px-6 mb-4">
+                        <button
+                            type="button"
+                            onClick={() => setComparisonTab('predicted')}
+                            className={[
+                                'px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all',
+                                comparisonTab === 'predicted'
+                                    ? 'bg-indigo-600 text-white shadow-soft'
+                                    : 'text-text-secondary hover:bg-bg-secondary/40 hover:text-text-primary'
+                            ].join(' ')}
+                        >
+                            🔮 Estimativas e Previsões (IA)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setComparisonTab('real')}
+                            className={[
+                                'px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all',
+                                comparisonTab === 'real'
+                                    ? 'bg-indigo-600 text-white shadow-soft'
+                                    : 'text-text-secondary hover:bg-bg-secondary/40 hover:text-text-primary'
+                            ].join(' ')}
+                        >
+                            📋 Dados Recebidos (Atuais)
+                        </button>
                     </div>
-                    <div className="px-6 pb-2 text-sm text-text-secondary">
-                        Diferença = projeção do desvio esperado da Turma A em relação à Turma B.
+
+                    <div className="mx-6 rounded-[22px] border border-border-subtle bg-bg-secondary/35 px-5 py-4 text-sm text-text-secondary">
+                        <span className="font-semibold text-text-primary">Análise comparativa:</span> {comparisonSummary}
+                    </div>
+                    <div className="px-6 pb-2 mt-2 text-xs text-text-secondary">
+                        Diferença = desvio da Turma A em relação à Turma B.
                     </div>
 
                     <div className="px-6">
                         <MetricsHelp
-                            items={[
-                                { label: 'Índice de risco', description: 'Chance de evasão/reprovação (menor é melhor).' },
-                                { label: 'Nota média', description: 'Média de notas da turma (maior é melhor).' },
-                                { label: 'Presença média', description: 'Média de presença (maior é melhor).' },
-                                { label: 'Atividade média', description: 'Indicador de entregas/atividades (maior é melhor).' },
-                                { label: 'Trabalho', description: 'Percentual de alunos que trabalham (pode aumentar dificuldade de acompanhar).' },
+                            items={comparisonTab === 'predicted' ? [
+                                { label: 'Índice de risco', description: 'Chance estimada de evasão/reprovação (menor é melhor).' },
+                                { label: 'Nota média', description: 'Previsão da média de notas da turma (maior é melhor).' },
+                                { label: 'Presença média', description: 'Previsão de presença final (maior é melhor).' },
+                            ] : [
+                                { label: 'Índice de risco real', description: 'Risco medido até o momento (menor é melhor).' },
+                                { label: 'Nota média real', description: 'Média de notas acumuladas real (maior é melhor).' },
+                                { label: 'Presença média real', description: 'Frequência acumulada real (maior é melhor).' },
+                                { label: 'Atividade média', description: 'Percentual médio de entrega de tarefas (maior é melhor).' },
+                                { label: 'Alunos que trabalham', description: 'Percentual de alunos matriculados que estão trabalhando.' },
                             ]}
                         />
                     </div>
