@@ -2507,6 +2507,19 @@ export function AnalysisCenter() {
 
     const [showIntro, setShowIntro] = useState(false);
     const [activeDropdownGroup, setActiveDropdownGroup] = useState(null);
+    const [lockedDropdownGroup, setLockedDropdownGroup] = useState(null);
+
+    // Sincronizar grupo travado com a análise selecionada
+    useEffect(() => {
+        if (selectedAnalysis && selectedAnalysis !== 'overview') {
+            const activeGrp = (analysisGroups || []).find(g => g.analysisIds.includes(selectedAnalysis));
+            if (activeGrp) {
+                setLockedDropdownGroup(activeGrp.id);
+            }
+        } else if (selectedAnalysis === 'overview') {
+            setLockedDropdownGroup(null);
+        }
+    }, [selectedAnalysis, analysisGroups]);
 
     const analyses = workspace?.available_analyses || [];
     const hasRecords = Number(workspace?.overview?.total_records || 0) > 0;
@@ -2520,28 +2533,22 @@ export function AnalysisCenter() {
     const analysisGroups = useMemo(() => {
         const sections = [
             {
-                id: 'action',
-                title: 'Ações e Intervenções Preditivas',
-                description: 'Identifique riscos e priorize ações para reverter cenários negativos no curso.',
-                analysisIds: ['by_class', 'early_alerts', 'intervention_priorities'],
-            },
-            {
-                id: 'explain',
-                title: 'Modelagem e Fatores de Risco',
-                description: 'Entenda as variáveis preditivas que mais afetam o desempenho e comportamento futuro.',
-                analysisIds: ['risk_factors', 'student_segments', 'intervention_simulator'],
-            },
-            {
-                id: 'trend',
-                title: 'Previsões e Projeção de Risco',
-                description: 'Visualize trajetórias preditivas e tendências para agir antes do risco se consolidar.',
-                analysisIds: ['student_trends', 'risk_projection', 'by_semester'],
-            },
-            {
                 id: 'compare',
-                title: 'Projeções e Comparativos Preditivos',
-                description: 'Compare simulações futuras de desempenho e identifique gargalos potenciais por disciplina.',
-                analysisIds: ['between_classes', 'discipline_risk', 'heatmap', 'risk_topics', 'discipline_bottlenecks'],
+                title: 'Análises Comparativas',
+                description: 'Compare desempenhos e acompanhe evoluções entre turmas, semestres e alunos.',
+                analysisIds: ['by_class', 'between_classes', 'by_semester', 'student_trends', 'heatmap'],
+            },
+            {
+                id: 'predictive',
+                title: 'Previsões e Alertas',
+                description: 'Monitore alertas precoces e previsões de risco por disciplina ou aluno.',
+                analysisIds: ['early_alerts', 'risk_projection', 'discipline_risk', 'risk_topics', 'intervention_priorities'],
+            },
+            {
+                id: 'factors',
+                title: 'Fatores e Simulações',
+                description: 'Entenda os causadores do risco e simule melhorias de desempenho.',
+                analysisIds: ['risk_factors', 'student_segments', 'intervention_simulator', 'discipline_bottlenecks'],
             },
         ];
 
@@ -2899,7 +2906,7 @@ export function AnalysisCenter() {
                                 variant="outline" 
                                 icon={Layers3}
                             >
-                                Análise: {analysesById.get(selectedAnalysis)?.label || 'Resumo'}
+                                Outras análises
                             </Button>
                             <div className="absolute right-0 top-full z-50 mt-2 w-80 translate-y-1 opacity-0 pointer-events-none transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
                                 <div className="rounded-[22px] border border-border-subtle bg-white p-3.5 shadow-card max-h-[420px] overflow-y-auto space-y-3">
@@ -2925,18 +2932,20 @@ export function AnalysisCenter() {
                                     <div className="border-t border-slate-100 pt-2.5 space-y-1.5">
                                         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary px-2 mb-2">Tópicos de Análise</p>
                                         {analysisGroups.map((group) => {
-                                            const isExpanded = activeDropdownGroup === group.id;
+                                            const isExpanded = activeDropdownGroup === group.id || lockedDropdownGroup === group.id;
                                             const groupHasActiveAnalysis = group.analysisIds.includes(selectedAnalysis);
-                                            
-                                            const groupAnalyses = group.analysisIds
-                                                .map(id => analysesById.get(id))
-                                                .filter(Boolean);
+                                            const groupAnalyses = group.available;
 
                                             return (
-                                                <div key={group.id} className="border border-slate-100/60 rounded-xl overflow-hidden bg-slate-50/20">
+                                                <div 
+                                                    key={group.id} 
+                                                    onMouseEnter={() => setActiveDropdownGroup(group.id)}
+                                                    onMouseLeave={() => setActiveDropdownGroup(null)}
+                                                    className="border border-slate-100/60 rounded-xl overflow-hidden bg-slate-50/20 transition-all duration-200"
+                                                >
                                                     <button
                                                         type="button"
-                                                        onClick={() => setActiveDropdownGroup(isExpanded ? null : group.id)}
+                                                        onClick={() => setLockedDropdownGroup(lockedDropdownGroup === group.id ? null : group.id)}
                                                         className={[
                                                             'w-full px-3 py-2 text-left flex items-center justify-between transition-colors',
                                                             groupHasActiveAnalysis 
@@ -2949,14 +2958,14 @@ export function AnalysisCenter() {
                                                             {group.title}
                                                         </span>
                                                         {isExpanded ? (
-                                                            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                                                            <ChevronDown className="h-3.5 w-3.5 text-slate-500 transition-transform duration-200 rotate-180" />
                                                         ) : (
-                                                            <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                                                            <ChevronRight className="h-3.5 w-3.5 text-slate-500 transition-transform duration-200" />
                                                         )}
                                                     </button>
                                                     
                                                     {isExpanded && (
-                                                        <div className="px-2 pb-2 pt-1 border-t border-slate-100/50 bg-white space-y-1">
+                                                        <div className="px-2 pb-2 pt-1 border-t border-slate-100/50 bg-white space-y-1 animate-fadeIn">
                                                             {groupAnalyses.map((item) => {
                                                                 const active = item.id === selectedAnalysis;
                                                                 return (

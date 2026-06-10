@@ -550,7 +550,7 @@ class HistoricalAnalysisService:
             },
             {
                 "id": "student_trends",
-                "label": "Tendência por Aluno",
+                "label": "Análise por Aluno",
                 "description": "Evolucao de risco, nota e presenca para encontrar quem piorou rapido.",
             },
             {
