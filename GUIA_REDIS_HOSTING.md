@@ -82,7 +82,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.
 
 ## 5. Hosting simples para apresentação
 
-### Opção A: notebook na mesma rede Wi‑Fi
+### Opção A: notebook na mesma rede Wi-Fi
 
 1. Rodar backend:
 
@@ -111,14 +111,19 @@ http://SEU-IP-LOCAL:5173
 
 Essa é a forma mais rápida para demonstração interna.
 
-### Opção B: deploy real
+### Opção B: Cloudflare Pages + Tunnel
 
 Separação recomendada:
 
-- Frontend: Vercel, Netlify ou servidor Nginx estático.
-- Backend FastAPI: Render, Railway, VPS Linux ou Docker.
-- Banco: PostgreSQL gerenciado.
-- Cache: Redis gerenciado.
+- Frontend: Cloudflare Pages
+- Proxy `/api`: Cloudflare Pages Functions
+- Backend FastAPI: sua máquina local com `cloudflared`
+- Banco: SQLite local
+- Cache: Redis opcional
+
+Guia completo:
+
+- [GUIA_DEPLOY_CLOUDFLARE_TUNNEL.md](./GUIA_DEPLOY_CLOUDFLARE_TUNNEL.md)
 
 ## 6. Produção
 

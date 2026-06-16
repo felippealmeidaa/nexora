@@ -1,0 +1,7 @@
+tunnel: substitua-pelo-id-do-seu-tunnel
+credentials-file: C:\Users\SEU_USUARIO\.cloudflared\SEU-TUNNEL-ID.json
+
+ingress:
+  - hostname: api.seu-dominio.com
+    service: http://127.0.0.1:8000
+  - service: http_status:404
