@@ -3195,6 +3195,7 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
 
 
     const detailsResultRef = useRef(null);
+    const isFirstRender = useRef(true);
 
     const [intentQuery, setIntentQuery] = useState('');
     const [analysisFilterQuery, setAnalysisFilterQuery] = useState('');
@@ -3459,7 +3460,6 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
     function handleSelectAnalysis(nextId) {
         setSelectedAnalysis(nextId);
         setMobileAnalysesOpen(false);
-        scrollToResults();
     }
 
     function renderAnalysesMenuContent() {
@@ -3561,6 +3561,14 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
             detailsResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     }
+
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+        scrollToResults();
+    }, [selectedAnalysis]);
 
     async function handleOpenStudent(item) {
         const name = String(item?.student_name || item?.name || '').trim();
@@ -3726,7 +3734,6 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
                                 setSelectedClass(null);
                                 setSelectedStudentId(null);
                                 setSelectedAnalysis('overview');
-                                scrollToResults();
                             }}
                             className="hover:text-indigo-600 dark:hover:text-indigo-400 transition flex items-center gap-1.5 outline-none focus:outline-none"
                         >
@@ -3886,13 +3893,14 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
                 <>
                     <MinimalOverview overview={workspace.overview} disciplines={workspace.analysis_data.discipline_risk} />
 
-                    <motion.div
-                        ref={detailsResultRef}
-                        key={selectedAnalysis}
-                        initial={false}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-6"
-                    >
+                    <div ref={detailsResultRef} className="scroll-mt-6">
+                        <motion.div
+                            key={selectedAnalysis}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="space-y-6"
+                        >
                         {selectedAnalysis === 'overview' && <OverviewPanel workspace={workspace} isCoordinator={isCoordinator} />}
                         {selectedAnalysis === 'by_class' && (
                             <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -3954,7 +3962,8 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
                         {selectedAnalysis === 'student_segments' && <StudentSegmentsPanel rows={filteredAnalysisData?.student_segments || workspace.analysis_data.student_segments} />}
                         {selectedAnalysis === 'risk_projection' && <RiskProjectionPanel rows={filteredAnalysisData?.risk_projection || workspace.analysis_data.risk_projection} />}
                         {selectedAnalysis === 'heatmap' && <HeatmapPanel data={filteredAnalysisData?.heatmap || workspace.analysis_data.heatmap} />}
-                    </motion.div>
+                        </motion.div>
+                    </div>
 
 
 
