@@ -63,7 +63,7 @@ export const AuthProvider = ({ children }) => {
                 return {
                     success: false,
                     rateLimited: true,
-                    message: detail || 'Muitas tentativas de login. Aguarde 15 minutos antes de tentar novamente.',
+                    message: detail || 'Muitas tentativas de login. Aguarde 1 minuto antes de tentar novamente.',
                 };
             }
 

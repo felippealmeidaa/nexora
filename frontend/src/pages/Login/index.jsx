@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AuthAlert, AuthCard, AuthLayout } from '@/components/auth/AuthLayout';
 
-const MAX_CLIENT_ATTEMPTS = 5;
-const LOCKOUT_SECONDS = 15 * 60;
+const MAX_CLIENT_ATTEMPTS = 10;
+const LOCKOUT_SECONDS = 60;
 
 export function Login() {
     const [identifier, setIdentifier] = useState('');
@@ -121,7 +121,7 @@ export function Login() {
                     {isLockedOut ? (
                         <div className="rounded-2xl border border-danger/20 bg-danger/5 p-3 text-center text-xs text-danger">
                             <ShieldAlert className="mx-auto mb-1 h-4 w-4" />
-                            Limite de tentativas atingido. O próximo erro irá bloquear o acesso por 15 minutos.
+                            Limite de tentativas atingido. O próximo erro irá bloquear o acesso por 1 minuto.
                         </div>
                     ) : null}
 
