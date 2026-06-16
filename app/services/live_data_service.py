@@ -838,7 +838,7 @@ class LiveDataService:
             "aprovacao": "Aprovacao",
             "historico": "Historico",
             "carga": "Carga",
-            "dificuldade_disciplina": "Dificuldade da disciplina",
+            "dificuldade_disciplina": "Dificuldade da Matéria",
             "trabalho": "Trabalho",
         }
         risk_factors = [

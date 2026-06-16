@@ -1055,14 +1055,14 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                             <MetricCard
                                 title="Nível de Acerto da IA"
-                                value={bestModel ? Number(bestModel.roc_auc || 0).toFixed(3) : '0.000'}
+                                value={bestModel ? `${(Number(bestModel.roc_auc || 0) * 100).toFixed(1)}%` : '0%'}
                                 helper={bestModel ? `Modelo: ${bestModel.label}` : 'Sem modelo dominante'}
                                 icon={BrainCircuit}
                                 tone="purple"
                             />
                             <MetricCard
                                 title="Equilíbrio de Previsão"
-                                value={bestModel ? Number(bestModel.f1 || 0).toFixed(3) : '0.000'}
+                                value={bestModel ? `${(Number(bestModel.f1 || 0) * 100).toFixed(1)}%` : '0%'}
                                 helper="Equilíbrio entre acertos e falsos alertas"
                                 icon={CheckCircle2}
                                 tone="emerald"

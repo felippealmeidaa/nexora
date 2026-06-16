@@ -847,7 +847,7 @@ class HistoricalAnalysisService:
             "aprovacao": "Reprovação",
             "historico": "Histórico de reprovações",
             "carga": "Carga de disciplinas",
-            "dificuldade_disciplina": "Dificuldade da disciplina",
+            "dificuldade_disciplina": "Dificuldade da Matéria",
             "trabalho": "Trabalho",
         }
 
