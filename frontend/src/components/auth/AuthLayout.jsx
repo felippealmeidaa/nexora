@@ -30,7 +30,7 @@ export function AuthLayout({
     children,
     eyebrow = 'Plataforma institucional',
     title = 'Monitoramento acadêmico com identidade única da NEXORA.',
-    description = 'KPIs, alertas, predições e apoio à decisão para aluno, professor, coordenação e pró-reitoria em um único ambiente.',
+    description = 'Indicadores, alertas, predições e apoio à decisão para professor, coordenação e pró-reitoria em um único ambiente.',
     features = DEFAULT_FEATURES,
 }) {
     return (

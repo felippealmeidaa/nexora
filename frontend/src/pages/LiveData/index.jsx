@@ -31,8 +31,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 
-const CLASSES_PER_PAGE = 6;
-const STUDENTS_PER_PAGE = 15;
+const CLASSES_PER_PAGE = 10;
+const STUDENTS_PER_PAGE = 10;
 
 const riskLabels = {
     low: 'Baixo',
@@ -409,7 +409,7 @@ export function LiveDataPage() {
                     <Card>
                         <CardHeader
                             title="Turmas disponíveis"
-                            subtitle="Mostrando 6 por página para facilitar a navegação"
+                            subtitle="Mostrando 10 por página para facilitar a navegação"
                             icon={BookOpen}
                             action={<Badge variant="info">{visibleClasses.length} turmas</Badge>}
                         />
