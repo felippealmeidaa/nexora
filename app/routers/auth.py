@@ -236,56 +236,59 @@ def login(data: LoginRequest, request: Request, response: Response, db: Session 
     client_ip = get_client_ip(request)
 
     # Verificar rate limit e lockout de login
-    fifteen_minutes_ago = datetime.utcnow() - timedelta(minutes=15)
+    max_limit = 10
+    window_minutes = 2
+    block_minutes = 1
+
+    window_start = datetime.utcnow() - timedelta(minutes=window_minutes)
 
     failed_attempts_by_ip = db.query(LoginAttempt).filter(
         LoginAttempt.ip_address == client_ip,
-        LoginAttempt.timestamp >= fifteen_minutes_ago,
+        LoginAttempt.timestamp >= window_start,
         LoginAttempt.is_successful == False
     ).count()
 
     failed_attempts_by_user = db.query(LoginAttempt).filter(
         LoginAttempt.username == identifier,
-        LoginAttempt.timestamp >= fifteen_minutes_ago,
+        LoginAttempt.timestamp >= window_start,
         LoginAttempt.is_successful == False
     ).count()
 
-    if failed_attempts_by_ip >= 5 or failed_attempts_by_user >= 5:
-        # Calcular tempo restante para expirar a primeira tentativa da janela de 15 min
+    if failed_attempts_by_ip >= max_limit or failed_attempts_by_user >= max_limit:
+        # Calcular tempo restante para expirar a primeira tentativa da janela
         oldest_attempt = None
-        if failed_attempts_by_ip >= 5:
+        if failed_attempts_by_ip >= max_limit:
             oldest_attempt = db.query(LoginAttempt).filter(
                 LoginAttempt.ip_address == client_ip,
-                LoginAttempt.timestamp >= fifteen_minutes_ago,
+                LoginAttempt.timestamp >= window_start,
                 LoginAttempt.is_successful == False
             ).order_by(LoginAttempt.timestamp.asc()).first()
 
-        if failed_attempts_by_user >= 5:
+        if failed_attempts_by_user >= max_limit:
             oldest_user_attempt = db.query(LoginAttempt).filter(
                 LoginAttempt.username == identifier,
-                LoginAttempt.timestamp >= fifteen_minutes_ago,
+                LoginAttempt.timestamp >= window_start,
                 LoginAttempt.is_successful == False
             ).order_by(LoginAttempt.timestamp.asc()).first()
             if not oldest_attempt or (oldest_user_attempt and oldest_user_attempt.timestamp < oldest_attempt.timestamp):
                 oldest_attempt = oldest_user_attempt
 
-        retry_after = 900  # Default 15 minutos em segundos
+        retry_after = 60  # Default 1 minuto em segundos
         if oldest_attempt:
-            delta = (oldest_attempt.timestamp + timedelta(minutes=15)) - datetime.utcnow()
+            delta = (oldest_attempt.timestamp + timedelta(minutes=block_minutes)) - datetime.utcnow()
             retry_after = max(1, int(delta.total_seconds()))
 
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Muitas tentativas de login incorretas. Sua conta ou IP foram temporariamente bloqueados. Tente novamente após 15 minutos.",
+            detail="Muitas tentativas de login incorretas. Sua conta ou IP foram temporariamente bloqueados. Tente novamente após 1 minuto.",
             headers={
                 "Retry-After": str(retry_after),
-                "X-RateLimit-Limit": "5",
+                "X-RateLimit-Limit": str(max_limit),
                 "X-RateLimit-Remaining": "0"
             }
         )
 
     # Definir cabeçalhos normais de rate limit restante
-    max_limit = 5
     remaining = max(0, max_limit - max(failed_attempts_by_ip, failed_attempts_by_user))
     response.headers["X-RateLimit-Limit"] = str(max_limit)
     response.headers["X-RateLimit-Remaining"] = str(remaining)

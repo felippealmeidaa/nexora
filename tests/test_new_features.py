@@ -71,8 +71,8 @@ class TestSecurityHeaders:
 
 
 class TestLoginLockout:
-    def test_login_lockout_after_five_failed_attempts(self, client):
-        """Verifica que após 5 tentativas de login falhas consecutivas de um IP/Username, o lockout é acionado."""
+    def test_login_lockout_after_failed_attempts(self, client):
+        """Verifica que após 10 tentativas de login falhas consecutivas de um IP/Username, o lockout é acionado."""
         # Limpar TODAS as tentativas de login prévias para evitar interferência
         db = SessionLocal()
         try:
@@ -83,15 +83,15 @@ class TestLoginLockout:
 
         identifier = f"testnewuser_lock_{_uid}"
 
-        # Fazer 5 tentativas incorretas
-        for i in range(5):
+        # Fazer 10 tentativas incorretas
+        for i in range(10):
             resp = client.post("/api/auth/login", json={
                 "identifier": identifier,
                 "password": f"wrongpass{i}",
             })
             assert resp.status_code == 401, f"Falha na tentativa {i+1}"
 
-        # A 6ª tentativa deve retornar HTTP 429 (Too Many Requests) devido ao Lockout
+        # A 11ª tentativa deve retornar HTTP 429 (Too Many Requests) devido ao Lockout
         resp = client.post("/api/auth/login", json={
             "identifier": identifier,
             "password": "some_password",

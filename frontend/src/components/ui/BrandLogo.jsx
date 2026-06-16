@@ -10,8 +10,7 @@ export function BrandLogo({ className, compact = false, symbolOnly = false }) {
             alt={symbolOnly ? 'Simbolo NEXORA' : 'NEXORA'}
             className={clsx(
                 'block w-auto object-contain object-left',
-                compact ? 'h-12' : 'h-14',
-                className,
+                className || (compact ? 'h-12' : 'h-14'),
             )}
         />
     );

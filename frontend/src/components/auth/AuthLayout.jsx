@@ -37,15 +37,15 @@ export function AuthLayout({
         <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg-primary px-4 py-10">
             <AnimatedBackground variant="login" />
             <div className="relative z-10 w-full max-w-6xl">
-                <div className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:items-start">
+                <div className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
                     <div className="hidden lg:block">
                         <div className="brand-shell rounded-[32px] border border-white/70 p-10">
                             <span className="inline-flex rounded-full border border-accent-blue/15 bg-accent-blue/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-blue">
                                 {eyebrow}
                             </span>
                             <div className="mt-6 flex items-center gap-4">
-                                <div className="rounded-[28px] border border-white/80 bg-white/92 px-5 py-4 shadow-[0_24px_60px_-36px_rgba(15,23,42,0.26)]">
-                                    <BrandLogo className="h-16" />
+                                <div className="rounded-[36px] border border-white/85 bg-white/95 px-8 py-6 shadow-[0_24px_60px_-36px_rgba(15,23,42,0.26)]">
+                                    <BrandLogo className="h-24" />
                                 </div>
                             </div>
                             <h2 className="mt-6 text-4xl font-semibold leading-tight text-text-primary">

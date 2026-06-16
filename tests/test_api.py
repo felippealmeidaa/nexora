@@ -101,7 +101,7 @@ class TestAuth:
 
     def test_login_rate_limit_and_lockout(self, client):
         temp_username = f"ratelimit_{_uid}"
-        for attempt_number in range(5):
+        for attempt_number in range(10):
             response = client.post(
                 "/api/auth/login",
                 json={
@@ -110,8 +110,8 @@ class TestAuth:
                 },
             )
             assert response.status_code == 401
-            assert response.headers.get("X-RateLimit-Limit") == "5"
-            assert int(response.headers.get("X-RateLimit-Remaining")) == 4 - attempt_number
+            assert response.headers.get("X-RateLimit-Limit") == "10"
+            assert int(response.headers.get("X-RateLimit-Remaining")) == 9 - attempt_number
 
         blocked = client.post(
             "/api/auth/login",
@@ -121,7 +121,7 @@ class TestAuth:
             },
         )
         assert blocked.status_code == 429
-        assert blocked.headers.get("X-RateLimit-Limit") == "5"
+        assert blocked.headers.get("X-RateLimit-Limit") == "10"
         assert blocked.headers.get("X-RateLimit-Remaining") == "0"
         assert "Retry-After" in blocked.headers
 
