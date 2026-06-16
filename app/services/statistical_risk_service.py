@@ -193,16 +193,16 @@ class StatisticalRiskService:
             "preprocessing": preprocessing_summary,
             "models": diagnostics,
             "techniques_used": [
-                "Tratamento de outliers por IQR",
-                "Imputacao por mediana",
-                "Padronizacao com StandardScaler",
-                "Transformacao logaritmica (log1p) em variaveis assimetricas",
-                "Criacao de variaveis derivadas de risco academico",
-                "Selecao de variaveis com ANOVA",
-                "Regressao logistica com regularizacao Ridge e Lasso",
-                "Modelos nao lineares com Random Forest e Gradient Boosting",
-                "Ensemble ponderado por desempenho",
-                f"Validacao cruzada Stratified K-Fold ({folds} folds)",
+                "Identificação e ajuste de notas ou faltas atípicas (outliers)",
+                "Preenchimento automático de notas ou frequências em falta",
+                "Normalização de notas para comparação justa entre disciplinas",
+                "Suavização de variações extremas de desempenho",
+                "Cálculo de novos indicadores baseados em notas e faltas",
+                "Seleção das informações mais importantes para o cálculo de risco",
+                "Modelo de Inteligência Artificial para classificação de alertas",
+                "Identificação de padrões e perfis de comportamento complexos",
+                "Combinação de diferentes algoritmos para aumentar a precisão",
+                f"Validação dos alertas em {folds} grupos de alunos diferentes",
             ],
         }
         return updated_records, context
@@ -344,7 +344,7 @@ class StatisticalRiskService:
         estimators = [
             {
                 "id": "lasso_logit",
-                "label": "Regressao logistica Lasso",
+                "label": "Modelo de Análise Linear (Lasso)",
                 "estimator": LogisticRegression(
                     penalty="l1",
                     solver="liblinear",
@@ -356,7 +356,7 @@ class StatisticalRiskService:
             },
             {
                 "id": "ridge_logit",
-                "label": "Regressao logistica Ridge",
+                "label": "Modelo de Análise Linear (Ridge)",
                 "estimator": LogisticRegression(
                     penalty="l2",
                     solver="lbfgs",
@@ -368,7 +368,7 @@ class StatisticalRiskService:
             },
             {
                 "id": "random_forest",
-                "label": "Random Forest",
+                "label": "Modelo de Padrões Combinados (Random Forest)",
                 "estimator": RandomForestClassifier(
                     n_estimators=40,
                     max_depth=6,
@@ -379,7 +379,7 @@ class StatisticalRiskService:
             },
             {
                 "id": "gradient_boosting",
-                "label": "Gradient Boosting",
+                "label": "Modelo de Padrões Combinados (Gradient Boosting)",
                 "estimator": GradientBoostingClassifier(
                     n_estimators=30,
                     max_depth=4,
@@ -541,8 +541,14 @@ class StatisticalRiskService:
 
             factor_breakdown["atividade"] = 0.0
             factor_breakdown["trabalho"] = 0.0
-            if int(row.get("student_failures") or 0) == 0:
+
+            is_live = (row.get("data_source") == "live") or (row.get("spreadsheet_id") is None)
+            if is_live:
+                factor_breakdown["aprovacao"] = 0.0
                 factor_breakdown["historico"] = 0.0
+            else:
+                if int(row.get("student_failures") or 0) == 0:
+                    factor_breakdown["historico"] = 0.0
 
             active_sum = sum(factor_breakdown.values())
             if active_sum > 1e-9:

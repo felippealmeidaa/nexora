@@ -712,21 +712,37 @@ class HistoricalAnalysisService:
         failures: int,
         load: int,
         discipline_difficulty: float,
+        is_live: bool = False,
     ) -> dict[str, float]:
         grade_factor = 1 - _clamp(grade_average / 10, 0.0, 1.0)
         attendance_factor = 1 - _clamp(attendance / 100, 0.0, 1.0)
         volatility_factor = _clamp(grade_std / 4, 0.0, 1.0)
         approval_factor = 0.0 if approved else 1.0
 
+        weights = {
+            "nota": 0.38,
+            "presenca": 0.26,
+            "oscilacao": 0.05,
+            "aprovacao": 0.0 if is_live else 0.07,
+            "historico": 0.0 if (is_live or failures == 0) else 0.10,
+        }
+
+        total_weight = sum(weights.values())
+        if total_weight > 0:
+            scale = 1.0 / total_weight
+            weights = {k: v * scale for k, v in weights.items()}
+        else:
+            weights = {"nota": 1.0}
+
         return {
-            "nota": round(grade_factor * 0.38, 4),
+            "nota": round(grade_factor * weights.get("nota", 0.0), 4),
             "primeira_avaliacao": 0.0,
-            "presenca": round(attendance_factor * 0.26, 4),
+            "presenca": round(attendance_factor * weights.get("presenca", 0.0), 4),
             "queda_presenca": 0.0,
             "atividade": 0.0,
-            "oscilacao": round(volatility_factor * 0.05, 4),
-            "aprovacao": round(approval_factor * 0.07, 4),
-            "historico": round((failures / 4) * 0.10, 4) if failures > 0 else 0.0,
+            "oscilacao": round(volatility_factor * weights.get("oscilacao", 0.0), 4),
+            "aprovacao": round(approval_factor * weights.get("aprovacao", 0.0), 4),
+            "historico": round((failures / 4) * weights.get("historico", 0.0), 4) if (not is_live and failures > 0) else 0.0,
             "carga": 0.0,
             "dificuldade_disciplina": 0.0,
             "trabalho": 0.0,
@@ -812,6 +828,7 @@ class HistoricalAnalysisService:
                 failures=int(record.get("student_failures") or 0),
                 load=int(record.get("student_load") or 0),
                 discipline_difficulty=float(record.get("discipline_difficulty") or 0.0),
+                is_live=(record.get("data_source") == "live" or record.get("spreadsheet_id") is None),
             )
             for key in totals:
                 totals[key] += breakdown.get(key, 0.0)
@@ -1320,7 +1337,7 @@ class HistoricalAnalysisService:
             by_subject[subject].append(row)
 
         student_failures = {
-            name: sum(1 for item in items if not bool(item.get("approved")))
+            name: sum(1 for item in items if (item.get("data_source") == "historical" or item.get("spreadsheet_id") is not None) and not bool(item.get("approved")))
             for name, items in by_student.items()
         }
         student_avg_attendance = {
@@ -1369,6 +1386,7 @@ class HistoricalAnalysisService:
                 failures=failures,
                 load=load,
                 discipline_difficulty=discipline_difficulty,
+                is_live=(row.get("data_source") == "live" or row.get("spreadsheet_id") is None),
             )
 
             risk_score = round(sum(breakdown.values()), 4)

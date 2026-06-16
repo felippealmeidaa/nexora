@@ -1315,7 +1315,7 @@ function EarlyAlertsPanel({ rows, onSelectStudent, onViewCriteria }) {
                                     <th className="px-4">Prioridade</th>
                                     <th className="px-4">Tags</th>
                                     <th className="px-4">Risco</th>
-                                    <th className="px-4">Criterios</th>
+                                    <th className="px-4">Critérios</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1346,7 +1346,7 @@ function EarlyAlertsPanel({ rows, onSelectStudent, onViewCriteria }) {
                                                     if (onViewCriteria) onViewCriteria(item);
                                                 }}
                                             >
-                                                Ver criterios
+                                                Ver critérios
                                             </Button>
                                         </td>
                                     </tr>
@@ -1712,7 +1712,7 @@ function MetricsHelp({ items }) {
 
     return (
         <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/40 px-5 py-5 text-sm text-text-secondary">
-            <p className="text-sm font-semibold text-text-primary">O que significa cada numero?</p>
+            <p className="text-sm font-semibold text-text-primary">O que significa cada número?</p>
             <div className="mt-3 space-y-2">
                 {safeItems.map((row) => (
                     <div key={row.label} className="leading-6">
@@ -1820,7 +1820,7 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
                                     <th className="px-4">Risco</th>
                                     <th className="px-4">Nota</th>
                                     <th className="px-4">{"Presença"}</th>
-                                    <th className="px-4">Criterios</th>
+                                    <th className="px-4">Critérios</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1846,7 +1846,7 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
                                                     if (onViewCriteria) onViewCriteria(item);
                                                 }}
                                             >
-                                                Ver criterios
+                                                Ver critérios
                                             </Button>
                                         </td>
                                     </tr>
@@ -3973,7 +3973,7 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
                     <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[26px] border border-border-subtle bg-white shadow-card-hover">
                         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border-subtle bg-white p-6">
                             <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">Criterios do risco</p>
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">Critérios do risco</p>
                                 <h2 className="mt-2 text-xl font-semibold text-text-primary">{criteriaModalItem.student_name}</h2>
                                 <p className="mt-2 text-sm leading-6 text-text-secondary">Mostra a participação proporcional de cada fator na composição do risco deste aluno (somando 100%).</p>
                             </div>
