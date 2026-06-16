@@ -539,6 +539,18 @@ class StatisticalRiskService:
             for factor_key in FACTOR_LABELS:
                 factor_breakdown.setdefault(factor_key, 0.0)
 
+            factor_breakdown["atividade"] = 0.0
+            factor_breakdown["trabalho"] = 0.0
+            if int(row.get("student_failures") or 0) == 0:
+                factor_breakdown["historico"] = 0.0
+
+            active_sum = sum(factor_breakdown.values())
+            if active_sum > 1e-9:
+                factor_breakdown = {k: (v / active_sum) * risk_score for k, v in factor_breakdown.items()}
+            else:
+                factor_breakdown = {k: 0.0 for k in factor_breakdown}
+                factor_breakdown["nota"] = risk_score
+
             normalized_breakdown = {
                 key: round(_clamp(float(value), 0.0, risk_score), 4)
                 for key, value in factor_breakdown.items()

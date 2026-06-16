@@ -1901,8 +1901,6 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
             { id: 'real_risk', label: 'Índice de risco real atual', a: classA.real_avg_risk, b: classB.real_avg_risk, formatter: formatRisk, better: 'lower' },
             { id: 'real_grade', label: 'Nota média real atual', a: classA.real_avg_grade, b: classB.real_avg_grade, formatter: (v) => Number(v || 0).toFixed(2), better: 'higher' },
             { id: 'real_attendance', label: 'Presença média real atual', a: classA.real_avg_attendance, b: classB.real_avg_attendance, formatter: formatPercent, better: 'higher' },
-            { id: 'activity', label: 'Atividade média recebida', a: classA.avg_activity, b: classB.avg_activity, formatter: formatPercent, better: 'higher' },
-            { id: 'working', label: 'Alunos que trabalham', a: classA.working_share, b: classB.working_share, formatter: formatPercent, better: 'lower' },
         ];
 
         return metrics.map((item) => {
@@ -2119,7 +2117,7 @@ function FilterSelect({ label, value, onChange, options }) {
 
 function MetricGrid({ overview, isCoordinator }) {
     return (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard title="Registros" value={overview.total_records} helper={`${overview.total_students} alunos mapeados`} icon={BarChart3} tone="blue" />
             <MetricCard 
                 title="Média de Notas Projetada ✨" 
@@ -2135,11 +2133,10 @@ function MetricGrid({ overview, isCoordinator }) {
                 icon={Users} 
                 tone="emerald" 
             />
-            <MetricCard title="Atividade Média" value={formatPercent(overview.avg_activity)} helper="Entregas acadêmicas e engajamento" icon={BookOpen} tone="purple" />
             <MetricCard
                 title={isCoordinator ? 'Turmas Críticas' : 'Risco Médio Projetado ✨'}
                 value={isCoordinator ? overview.critical_classes : formatRisk(overview.avg_risk)}
-                helper={isCoordinator ? 'Turmas exigindo intervenções preventivas' : (overview.real_avg_risk !== undefined ? `Risco atual real: ${formatRisk(overview.real_avg_risk)}` : `${overview.working_students || 0} alunos conciliam trabalho e estudo`)}
+                helper={isCoordinator ? 'Turmas exigindo intervenções preventivas' : (overview.real_avg_risk !== undefined ? `Risco atual real: ${formatRisk(overview.real_avg_risk)}` : 'Mapeamento de risco institucional')}
                 icon={ShieldAlert}
                 tone="amber"
             />
@@ -2206,9 +2203,9 @@ function OverviewPanel({ workspace, isCoordinator }) {
         const classGrade = c.avg_grade || 7.0;
         return {
             turma: c.label.split(' • ')[0],
-            "1ª VA": parseFloat((classGrade * 0.95).toFixed(2)),
-            "2ª VA": parseFloat((classGrade * 1.01).toFixed(2)),
-            "3ª VA": parseFloat((classGrade * 1.04).toFixed(2)),
+            "1ª VA": Math.min(10.0, parseFloat((classGrade * 0.95).toFixed(2))),
+            "2ª VA": Math.min(10.0, parseFloat((classGrade * 1.01).toFixed(2))),
+            "3ª VA": Math.min(10.0, parseFloat((classGrade * 1.04).toFixed(2))),
         };
     });
 
@@ -2221,13 +2218,14 @@ function OverviewPanel({ workspace, isCoordinator }) {
     ];
 
     // 3. Gráfico 2 (Direita): Comparativo de Presença e Desempenho (Piores/Mais Críticas Turmas por Risco)
-    const sortedWorstClasses = [...classes].sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0)).slice(0, 5);
+    const activeClassesForCorrelation = classes.filter(c => (c.avg_grade > 0 || c.avg_attendance > 0));
+    const sortedWorstClasses = [...activeClassesForCorrelation].sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0)).slice(0, 5);
     const correlationData = sortedWorstClasses.map(c => ({
         turma: c.label.split(' • ')[0],
         presenca_real: parseFloat((c.real_avg_attendance !== undefined ? c.real_avg_attendance : c.avg_attendance).toFixed(1)),
         presenca_prevista: parseFloat(c.avg_attendance.toFixed(1)),
-        nota_real: parseFloat((c.real_avg_grade !== undefined ? c.real_avg_grade : c.avg_grade).toFixed(2)),
-        nota_prevista: parseFloat(c.avg_grade.toFixed(2)),
+        nota_real: Math.min(10.0, parseFloat((c.real_avg_grade !== undefined ? c.real_avg_grade : c.avg_grade).toFixed(2))),
+        nota_prevista: Math.min(10.0, parseFloat(c.avg_grade.toFixed(2))),
     }));
 
     const chartCorrelation = correlationData.length > 0 ? correlationData : [
@@ -2286,11 +2284,8 @@ function OverviewPanel({ workspace, isCoordinator }) {
         ...f,
         label: factorLabels[f.key] || f.label,
     })) : [
-        { label: "Desempenho em Notas", key: "nota", avg_contribution_percent: 32.5 },
-        { label: "Frequência Escolar", key: "presenca", avg_contribution_percent: 28.0 },
-        { label: "Histórico de Reprovações", key: "historico", avg_contribution_percent: 18.5 },
-        { label: "Conciliação de Trabalho", key: "trabalho", avg_contribution_percent: 12.0 },
-        { label: "Atividade Acadêmica", key: "atividade", avg_contribution_percent: 9.0 },
+        { label: "Desempenho em Notas", key: "nota", avg_contribution_percent: 60.0 },
+        { label: "Frequência Escolar", key: "presenca", avg_contribution_percent: 40.0 },
     ];
 
     // Normalizar os top 5 fatores para que a soma exibida no gráfico da página inicial seja exatamente 100%
@@ -2791,8 +2786,6 @@ function ClassesPanel({ title, subtitle, rows, comparison = false, onSelectRow }
                             <th className="px-4">Semestre</th>
                             <th className="px-4">Nota</th>
                             <th className="px-4">{"Presença"}</th>
-                            <th className="px-4">Atividade</th>
-                            <th className="px-4">Trabalho</th>
                             <th className="px-4">Nivel</th>
                             <th className="px-4">{comparison ? 'Delta de risco' : 'Indice de risco'}</th>
                         </tr>
@@ -2814,8 +2807,6 @@ function ClassesPanel({ title, subtitle, rows, comparison = false, onSelectRow }
                                 <td className="px-4 py-4 text-text-secondary">{item.semester}</td>
                                 <td className="px-4 py-4 font-semibold text-text-primary">{item.avg_grade.toFixed(2)}</td>
                                 <td className="px-4 py-4 text-text-secondary">{formatPercent(item.avg_attendance)}</td>
-                                <td className="px-4 py-4 text-text-secondary">{formatPercent(item.avg_activity)}</td>
-                                <td className="px-4 py-4 text-text-secondary">{formatPercent(item.working_share)}</td>
                                 <td className="px-4 py-4"><Badge variant={getRiskVariant(item.risk_level)}>{riskLabels[item.risk_level] || item.risk_level}</Badge></td>
                                 <td className="rounded-r-[20px] px-4 py-4 text-text-secondary">
                                     {comparison ? `${(item.risk_delta * 100).toFixed(1)}%` : formatRisk(item.risk_score)}
@@ -2887,6 +2878,7 @@ function SemesterPanel({ rows }) {
 }
 
 function InterventionWindowPanel({ rows }) {
+    const [activeFilter, setActiveFilter] = useState('all');
     const safeRows = rows || [];
 
     const urgente   = safeRows.filter(r => r.zone === 'urgente');
@@ -3016,22 +3008,36 @@ function InterventionWindowPanel({ rows }) {
                 ) : (
                     <>
                         {/* Resumo por zona */}
-                        <div className="grid grid-cols-3 gap-4">
+                        <div className="grid grid-cols-3 gap-4 select-none">
                             {[
-                                { zone: 'urgente',    count: urgente.length,    label: 'Urgência Crítica',         color: 'text-red-600',   bg: 'bg-red-50 border-red-200' },
-                                { zone: 'recuperavel',count: recuperavel.length, label: 'Ainda Recuperável',        color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
-                                { zone: 'preventivo', count: preventivo.length,  label: 'Monitoramento Preventivo',  color: 'text-blue-600',  bg: 'bg-blue-50 border-blue-200' },
+                                { zone: 'urgente',    count: urgente.length,    label: 'Urgência Crítica',         color: 'text-red-600',   bg: activeFilter === 'urgente' ? 'bg-red-50 border-red-500 ring-2 ring-red-500/10 shadow-sm' : 'bg-red-50/50 border-red-200 hover:bg-red-50 hover:border-red-300' },
+                                { zone: 'recuperavel',count: recuperavel.length, label: 'Ainda Recuperável',        color: 'text-amber-600', bg: activeFilter === 'recuperavel' ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500/10 shadow-sm' : 'bg-amber-50/50 border-amber-200 hover:bg-amber-50 hover:border-amber-300' },
+                                { zone: 'preventivo', count: preventivo.length,  label: 'Monitoramento Preventivo',  color: 'text-blue-600',  bg: activeFilter === 'preventivo' ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-500/10 shadow-sm' : 'bg-blue-50/50 border-blue-200 hover:bg-blue-50 hover:border-blue-300' },
                             ].map(z => (
-                                <div key={z.zone} className={`rounded-[22px] border p-4 text-center ${z.bg}`}>
+                                <button
+                                    key={z.zone}
+                                    type="button"
+                                    onClick={() => setActiveFilter(previous => previous === z.zone ? 'all' : z.zone)}
+                                    className={`rounded-[22px] border p-4 text-center transition-all cursor-pointer ${z.bg}`}
+                                >
                                     <p className={`text-2xl font-bold ${z.color}`}>{z.count}</p>
                                     <p className="text-xs font-semibold text-text-secondary mt-1">{z.label}</p>
-                                </div>
+                                    <span className="text-[10px] text-text-tertiary block mt-1">
+                                        {activeFilter === z.zone ? 'Filtro ativo (clique para limpar)' : 'Clique para filtrar'}
+                                    </span>
+                                </button>
                             ))}
                         </div>
 
-                        <ZoneSection zone="urgente"    items={urgente} />
-                        <ZoneSection zone="recuperavel" items={recuperavel} />
-                        <ZoneSection zone="preventivo"  items={preventivo} />
+                        {(activeFilter === 'all' || activeFilter === 'urgente') && (
+                            <ZoneSection zone="urgente" items={urgente} />
+                        )}
+                        {(activeFilter === 'all' || activeFilter === 'recuperavel') && (
+                            <ZoneSection zone="recuperavel" items={recuperavel} />
+                        )}
+                        {(activeFilter === 'all' || activeFilter === 'preventivo') && (
+                            <ZoneSection zone="preventivo" items={preventivo} />
+                        )}
                     </>
                 )}
             </div>
@@ -4015,7 +4021,7 @@ export function AnalysisCenter({ dataSource = 'historical' }) {
                                                     label: labels[key] || key,
                                                     val: Number(val || 0)
                                                 }))
-                                                .filter(item => item.val > 0);
+                                                .filter(item => item.val > 0 && item.key !== 'atividade' && item.key !== 'trabalho');
 
                                             const totalContribution = entries.reduce((sum, item) => sum + item.val, 0);
 

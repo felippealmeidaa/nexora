@@ -227,7 +227,11 @@ export function AIInsightsPage() {
                                                 : 'border-border-subtle bg-white text-text-primary',
                                         ].join(' ')}
                                     >
-                                        <div className="whitespace-pre-wrap">{message.content}</div>
+                                        {message.role === 'user' ? (
+                                            <div className="whitespace-pre-wrap">{message.content}</div>
+                                        ) : (
+                                            <MarkdownRenderer text={message.content} />
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -264,5 +268,80 @@ export function AIInsightsPage() {
                 </Card>
             </div>
         </div>
+    );
+}
+
+function MarkdownRenderer({ text }) {
+    if (!text) return null;
+    
+    const lines = text.split('\n');
+    return (
+        <div className="space-y-4">
+            {lines.map((line, idx) => {
+                const trimmed = line.trim();
+                
+                // Tratar títulos
+                if (trimmed.startsWith('###')) {
+                    return (
+                        <h4 key={idx} className="text-sm font-extrabold text-indigo-700 mt-5 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-600" />
+                            {trimmed.replace('###', '').replace(/[\*#]/g, '').trim()}
+                        </h4>
+                    );
+                }
+                if (trimmed.startsWith('##')) {
+                    return (
+                        <h3 key={idx} className="text-base font-bold text-text-primary mt-6 mb-3 border-b border-border-subtle pb-1">
+                            {trimmed.replace('##', '').replace(/[\*#]/g, '').trim()}
+                        </h3>
+                    );
+                }
+                if (trimmed.startsWith('#')) {
+                    return (
+                        <h2 key={idx} className="text-lg font-extrabold text-indigo-800 mt-6 mb-4 border-l-4 border-indigo-600 pl-3">
+                            {trimmed.replace('#', '').replace(/[\*#]/g, '').trim()}
+                        </h2>
+                    );
+                }
+                
+                // Tratar listas
+                if (trimmed.startsWith('*') || trimmed.startsWith('-')) {
+                    const cleanText = trimmed.substring(1).trim();
+                    return (
+                        <li key={idx} className="ml-5 list-disc text-xs leading-6 text-text-secondary">
+                            {parseBold(cleanText)}
+                        </li>
+                    );
+                }
+                
+                // Tratar numeradas
+                const matchNumber = trimmed.match(/^(\d+)\.\s(.*)/);
+                if (matchNumber) {
+                    return (
+                        <div key={idx} className="ml-2 text-xs leading-6 text-text-secondary my-1">
+                            <span className="font-bold text-indigo-600">{matchNumber[1]}. </span>
+                            {parseBold(matchNumber[2])}
+                        </div>
+                    );
+                }
+                
+                // Parágrafos vazios ou normais
+                if (trimmed) {
+                    return (
+                        <p key={idx} className="text-xs leading-6 text-text-secondary">
+                            {parseBold(trimmed)}
+                        </p>
+                    );
+                }
+                return <div key={idx} className="h-1" />;
+            })}
+        </div>
+    );
+}
+
+function parseBold(text) {
+    const parts = text.split('**');
+    return parts.map((part, index) => 
+        index % 2 === 1 ? <strong key={index} className="font-extrabold text-text-primary">{part}</strong> : part
     );
 }

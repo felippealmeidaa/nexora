@@ -715,23 +715,21 @@ class HistoricalAnalysisService:
     ) -> dict[str, float]:
         grade_factor = 1 - _clamp(grade_average / 10, 0.0, 1.0)
         attendance_factor = 1 - _clamp(attendance / 100, 0.0, 1.0)
-        activity_factor = 1 - _clamp(activity_score / 100, 0.0, 1.0)
         volatility_factor = _clamp(grade_std / 4, 0.0, 1.0)
         approval_factor = 0.0 if approved else 1.0
-        work_factor = work_balance_score if is_working else 0.0
 
         return {
             "nota": round(grade_factor * 0.38, 4),
             "primeira_avaliacao": 0.0,
             "presenca": round(attendance_factor * 0.26, 4),
             "queda_presenca": 0.0,
-            "atividade": round(activity_factor * 0.17, 4),
+            "atividade": 0.0,
             "oscilacao": round(volatility_factor * 0.05, 4),
             "aprovacao": round(approval_factor * 0.07, 4),
-            "historico": 0.0,
+            "historico": round((failures / 4) * 0.10, 4) if failures > 0 else 0.0,
             "carga": 0.0,
             "dificuldade_disciplina": 0.0,
-            "trabalho": round(work_factor * 0.07, 4),
+            "trabalho": 0.0,
         }
 
     def _build_student_trends(self, prepared_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -918,8 +916,8 @@ class HistoricalAnalysisService:
             risk_score = float(record.get("risk_score") or 0.0)
             grade = float(record.get("grade_average") or 0.0)
             attendance = float(record.get("attendance") or 0.0)
-            activity = float(record.get("activity_score") or 0.0)
             is_working = bool(record.get("is_working"))
+            activity = float(record.get("activity_score") or 0.0)
 
             tags: list[str] = []
             if risk_score >= 0.58:
@@ -928,8 +926,6 @@ class HistoricalAnalysisService:
                 tags.append("Nota baixa")
             if attendance < 70:
                 tags.append("Presenca baixa")
-            if activity < 55:
-                tags.append("Baixa atividade")
             if is_working:
                 tags.append("Trabalha")
 
@@ -940,8 +936,8 @@ class HistoricalAnalysisService:
             priority += 3 if risk_score >= 0.75 else 2 if risk_score >= 0.58 else 0
             priority += 2 if attendance < 60 else 1 if attendance < 70 else 0
             priority += 2 if grade < 5.0 else 1 if grade < 6.0 else 0
-            priority += 1 if activity < 45 else 0
             priority += 1 if is_working else 0
+            priority = min(5, priority)
 
             alerts.append({
                 "id": f"alert::{record.get('id')}",
@@ -1150,7 +1146,6 @@ class HistoricalAnalysisService:
             {"id": "risk", "label": "Risco", "type": "percent"},
             {"id": "grade", "label": "Nota", "type": "grade"},
             {"id": "attendance", "label": "Presenca", "type": "percent"},
-            {"id": "activity", "label": "Atividade", "type": "percent"},
         ]
 
         classes = class_groups[:18]
@@ -1160,7 +1155,6 @@ class HistoricalAnalysisService:
             cells.append({"class_id": class_id, "metric": "risk", "value": float(group.get("risk_score") or 0.0)})
             cells.append({"class_id": class_id, "metric": "grade", "value": float(group.get("avg_grade") or 0.0)})
             cells.append({"class_id": class_id, "metric": "attendance", "value": float(group.get("avg_attendance") or 0.0) / 100.0})
-            cells.append({"class_id": class_id, "metric": "activity", "value": float(group.get("avg_activity") or 0.0) / 100.0})
 
         return {
             "metrics": metrics,
