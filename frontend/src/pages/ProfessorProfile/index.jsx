@@ -1,187 +1,130 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom';
-import {
-    AlertCircle,
-    BookOpen,
-    CheckCircle,
-    GraduationCap,
-    Mail,
-    Phone,
-    Save,
-    Search,
-    User,
-    UserCircle,
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { KeyRound, LockKeyhole, ShieldCheck, UserCircle } from 'lucide-react';
 
 import api from '@/services/api';
-import { fetchAcademicCourses } from '@/constants/academicCourses';
 import { useAuth } from '@/contexts/AuthContext';
-import { buildRolePath } from '@/lib/app-shell';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
+import { Card, CardHeader } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
-import { PageHeader } from '@/components/ui/PageHeader';
 
-function normalizeText(value) {
-    return String(value || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .trim()
-        .toLowerCase();
-}
+const INITIAL_LYCEUM_FORM = {
+    lyceum_password: '',
+    confirm_lyceum_password: '',
+};
 
-function dedupeSubjects(subjects) {
-    const unique = new Map();
-    for (const subject of subjects || []) {
-        const key = normalizeText(subject?.name || subject?.code || '');
-        if (!key || unique.has(key)) continue;
-        unique.set(key, subject);
-    }
-    return Array.from(unique.values()).sort((left, right) => {
-        const leftName = left?.name || '';
-        const rightName = right?.name || '';
-        return leftName.localeCompare(rightName);
-    });
+const INITIAL_SYSTEM_FORM = {
+    current_password: '',
+    new_password: '',
+    confirm_new_password: '',
+};
+
+function getRoleLabel(role) {
+    if (role === 'admin') return 'Admin';
+    if (role === 'coordinator') return 'Coordenador';
+    return 'Professor';
 }
 
 export function ProfessorProfile() {
     const { user } = useAuth();
-    const coursesRoute = buildRolePath(user?.role, 'courses');
+    const supportsLyceumSync = user?.role === 'professor';
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
-    const [availableCourses, setAvailableCourses] = useState([]);
-    const [courseSearch, setCourseSearch] = useState('');
-    const [showCourseDropdown, setShowCourseDropdown] = useState(false);
-    const [form, setForm] = useState({ name: '', email: '', phone: '' });
-    const [academicCourses, setAcademicCourses] = useState([]);
-    const [linkedSubjects, setLinkedSubjects] = useState([]);
+    const [pageError, setPageError] = useState('');
+    const [profile, setProfile] = useState(null);
+    const [liveCatalog, setLiveCatalog] = useState(null);
+    const [lyceumForm, setLyceumForm] = useState(INITIAL_LYCEUM_FORM);
+    const [systemForm, setSystemForm] = useState(INITIAL_SYSTEM_FORM);
+    const [lyceumSaving, setLyceumSaving] = useState(false);
+    const [systemSaving, setSystemSaving] = useState(false);
+    const [lyceumError, setLyceumError] = useState('');
+    const [lyceumSuccess, setLyceumSuccess] = useState('');
+    const [systemError, setSystemError] = useState('');
+    const [systemSuccess, setSystemSuccess] = useState('');
 
     useEffect(() => {
-        fetchAcademicCourses(api).then(setAvailableCourses);
-    }, []);
-
-    const loadLinkedSubjects = async (courseNames) => {
-        const selectedNames = (courseNames || []).filter(Boolean);
-        if (!selectedNames.length) {
-            setLinkedSubjects([]);
-            return [];
-        }
-
-        try {
-            const response = await api.get('/courses/by-academic-courses', {
-                params: { names: selectedNames.join(',') },
-            });
-            const subjects = Array.isArray(response.data) ? response.data : [];
-            const uniqueSubjects = dedupeSubjects(subjects);
-            setLinkedSubjects(uniqueSubjects);
-            return uniqueSubjects;
-        } catch (loadError) {
-            console.error('Erro ao carregar disciplinas elegíveis do professor', loadError);
-            setLinkedSubjects([]);
-            return [];
-        }
-    };
-
-    useEffect(() => {
-        const fetchProfile = async () => {
+        async function fetchProfile() {
+            setLoading(true);
+            setPageError('');
             try {
-                const response = await api.get('/professors/me');
-                const data = response.data;
-                const nextForm = {
-                    name: data.user_name || user?.full_name || '',
-                    email: data.user_email || user?.email || '',
-                    phone: data.phone || '',
-                };
-                const nextAcademicCourses = data.academic_courses || [];
-                setForm(nextForm);
-                setAcademicCourses(nextAcademicCourses);
-                await loadLinkedSubjects(nextAcademicCourses);
+                const [profileResponse, catalogResponse] = await Promise.allSettled([
+                    api.get('/professors/me'),
+                    api.get('/live-data/catalog'),
+                ]);
+
+                if (profileResponse.status === 'fulfilled') {
+                    setProfile(profileResponse.value.data);
+                }
+
+                if (catalogResponse.status === 'fulfilled') {
+                    setLiveCatalog(catalogResponse.value.data);
+                }
             } catch (err) {
-                console.error(err);
-                setError('Erro ao carregar perfil.');
+                console.error('Erro ao carregar perfil', err);
+                setPageError('Não foi possível carregar o perfil.');
             } finally {
                 setLoading(false);
             }
-        };
+        }
+
         fetchProfile();
-    }, [user?.email, user?.full_name]);
+    }, []);
 
-    const updateField = (field, value) => {
-        setForm((previous) => ({ ...previous, [field]: value }));
-        setError('');
-        setSuccess('');
+    const updateLyceumField = (field, value) => {
+        setLyceumForm((previous) => ({ ...previous, [field]: value }));
+        setLyceumError('');
+        setLyceumSuccess('');
     };
 
-    const toggleAcademicCourse = (courseName) => {
-        setAcademicCourses((previous) => (
-            previous.includes(courseName)
-                ? previous.filter((course) => course !== courseName)
-                : [...previous, courseName]
-        ));
-        setError('');
-        setSuccess('');
+    const updateSystemField = (field, value) => {
+        setSystemForm((previous) => ({ ...previous, [field]: value }));
+        setSystemError('');
+        setSystemSuccess('');
     };
 
-    const handleSubmit = async (event) => {
+    const handleLyceumPasswordSubmit = async (event) => {
         event.preventDefault();
-        setSaving(true);
-        setError('');
-        setSuccess('');
-
-        const trimmedName = form.name.trim();
-        const trimmedEmail = form.email.trim().toLowerCase();
-        const trimmedPhone = form.phone.trim();
-
-        if (academicCourses.length === 0) {
-            setError('Selecione ao menos um curso acadêmico.');
-            setSaving(false);
-            return;
-        }
-
-        if (trimmedEmail && !trimmedEmail.includes('@')) {
-            setError('Informe um e-mail válido com @ ou deixe o campo em branco.');
-            setSaving(false);
-            return;
-        }
+        setLyceumSaving(true);
+        setLyceumError('');
+        setLyceumSuccess('');
 
         try {
-            const requests = [
-                api.put('/professors/me/academic-courses', {
-                    course_names: academicCourses,
-                }),
-            ];
-
-            if (trimmedName || trimmedEmail || trimmedPhone) {
-                requests.unshift(
-                    api.patch('/auth/me', {
-                        ...(trimmedName ? { full_name: trimmedName } : {}),
-                        ...(trimmedEmail ? { email: trimmedEmail } : {}),
-                        phone: trimmedPhone || null,
-                    })
-                );
-            }
-
-            await Promise.all(requests);
-
-            const refreshed = await api.get('/professors/me');
-            const refreshedAcademicCourses = refreshed.data.academic_courses || [];
-            setForm({
-                name: refreshed.data.user_name || trimmedName || '',
-                email: refreshed.data.user_email || trimmedEmail || '',
-                phone: refreshed.data.phone || trimmedPhone || '',
+            await api.post('/auth/me/lyceum-password', {
+                lyceum_password: lyceumForm.lyceum_password,
+                confirm_lyceum_password: lyceumForm.confirm_lyceum_password,
             });
-            setAcademicCourses(refreshedAcademicCourses);
-            await loadLinkedSubjects(refreshedAcademicCourses);
-            setSuccess('Cursos do professor salvos com sucesso. As disciplinas elegíveis do seu curso já foram atualizadas.');
+            setLyceumSuccess('Senha do Lyceum validada e atualizada para as próximas sincronizações.');
+            setLyceumForm(INITIAL_LYCEUM_FORM);
         } catch (err) {
-            setError(err.response?.data?.detail || 'Erro ao atualizar perfil.');
+            console.error('Erro ao atualizar senha do Lyceum', err);
+            setLyceumError(err.response?.data?.detail || 'Não foi possível validar a senha do Lyceum.');
         } finally {
-            setSaving(false);
+            setLyceumSaving(false);
         }
     };
+
+    const handleSystemPasswordSubmit = async (event) => {
+        event.preventDefault();
+        setSystemSaving(true);
+        setSystemError('');
+        setSystemSuccess('');
+
+        try {
+            await api.post('/auth/me/system-password', {
+                current_password: systemForm.current_password,
+                new_password: systemForm.new_password,
+                confirm_new_password: systemForm.confirm_new_password,
+            });
+            setSystemSuccess('Senha da NEXORA atualizada com sucesso.');
+            setSystemForm(INITIAL_SYSTEM_FORM);
+        } catch (err) {
+            console.error('Erro ao atualizar senha da NEXORA', err);
+            setSystemError(err.response?.data?.detail || 'Não foi possível atualizar a senha da NEXORA.');
+        } finally {
+            setSystemSaving(false);
+        }
+    };
+
+    const classesCount = (liveCatalog?.courses || []).reduce((sum, item) => sum + (item.classes_count || 0), 0);
+    const studentsCount = (liveCatalog?.courses || []).reduce((sum, item) => sum + (item.students_count || 0), 0);
 
     if (loading) {
         return (
@@ -190,160 +133,185 @@ export function ProfessorProfile() {
             </div>
         );
     }
-    const filteredCourses = availableCourses
-        .filter((course) => normalizeText(course).includes(normalizeText(courseSearch)))
-        .filter((course) => !academicCourses.some((selected) => normalizeText(selected) === normalizeText(course)));
-    const linkedSubjectsPreview = linkedSubjects;
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35 }}
-            className="mx-auto max-w-5xl space-y-6"
-        >
-            <PageHeader
-                title="Meu perfil"
-                subtitle="Atualize seus dados e mantenha salvos os cursos acadêmicos que definem as disciplinas elegíveis do seu painel."
-                icon={UserCircle}
-            />
+        <div className="mx-auto max-w-6xl space-y-6">
+            {pageError ? (
+                <div className="rounded-[22px] border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-danger">
+                    {pageError}
+                </div>
+            ) : null}
 
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    <Card className="p-6">
-                        <h3 className="mb-5 flex items-center gap-2 text-lg font-semibold text-text-primary">
-                            <User className="h-5 w-5 text-accent-purple-light" />
-                            Informações básicas
-                        </h3>
-                        <div className="space-y-4">
-                            <Input label="Nome completo" value={form.name} onChange={(event) => updateField('name', event.target.value)} icon={User} placeholder="Seu nome" />
-                            <Input label="E-mail" value={form.email} onChange={(event) => updateField('email', event.target.value)} icon={Mail} type="email" placeholder="seu@email.com" />
-                            <Input label="Telefone" value={form.phone} onChange={(event) => updateField('phone', event.target.value)} icon={Phone} placeholder="(00) 00000-0000" />
-                        </div>
-                    </Card>
-
-                    <Card className="p-6">
-                        <h3 className="mb-2 flex items-center gap-2 text-lg font-semibold text-text-primary">
-                            <GraduationCap className="h-5 w-5 text-accent-blue-light" />
-                            Cursos em que você leciona
-                        </h3>
-                        <p className="mb-4 text-sm text-text-secondary">
-                            Os cursos abaixo ficam salvos no seu perfil desde o cadastro. A partir deles, a NEXORA libera apenas as disciplinas elegíveis daquele curso para você marcar no módulo de disciplinas.
-                        </p>
-
-                        {academicCourses.length > 0 ? (
-                            <div className="mb-3 flex flex-wrap gap-2">
-                                {academicCourses.map((name) => (
-                                    <span key={name} className="inline-flex items-center gap-1.5 rounded-full border border-accent-purple/20 bg-accent-purple/12 px-3 py-1.5 text-xs font-medium text-accent-purple">
-                                        {name}
-                                        <button type="button" onClick={() => toggleAcademicCourse(name)} className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-accent-purple/18">
-                                            x
-                                        </button>
-                                    </span>
-                                ))}
-                            </div>
-                        ) : null}
-
-                        <div className="relative">
-                            <Input
-                                placeholder="Digite o nome do curso para buscar..."
-                                icon={Search}
-                                value={courseSearch}
-                                onChange={(event) => setCourseSearch(event.target.value)}
-                                onFocus={() => setShowCourseDropdown(true)}
+            <div className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
+                <div className="space-y-6">
+                    <Card>
+                        <CardHeader
+                            title="Identidade da conta"
+                            icon={UserCircle}
+                        />
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <ReadOnlyField label="Nome completo" value={profile?.full_name || user?.full_name || '-'} />
+                            <ReadOnlyField label="Usuário de acesso" value={user?.username || '-'} />
+                            <ReadOnlyField label="Perfil" value={getRoleLabel(user?.role)} />
+                            <ReadOnlyField
+                                label="Fonte dos cursos"
+                                value={(liveCatalog?.courses || []).length > 0 ? 'Scraper docente do Lyceum' : 'Aguardando sincronização'}
                             />
-
-                            {showCourseDropdown ? <div className="fixed inset-0 z-40" onClick={() => setShowCourseDropdown(false)} /> : null}
-                            {showCourseDropdown ? (
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    className="absolute z-50 mt-2 max-h-56 w-full overflow-y-auto rounded-2xl border border-border-subtle bg-white/95 shadow-card-hover backdrop-blur-xl"
-                                >
-                                    {filteredCourses.length > 0 ? filteredCourses.map((course) => (
-                                        <button
-                                            key={course}
-                                            type="button"
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                toggleAcademicCourse(course);
-                                                setCourseSearch('');
-                                                setShowCourseDropdown(false);
-                                            }}
-                                            className="flex w-full items-center justify-between border-b border-border-subtle/20 px-5 py-3.5 text-left text-sm text-text-primary transition-all last:border-0 hover:bg-accent-purple/12"
-                                        >
-                                            <span>{course}</span>
-                                            <CheckCircle className="h-4 w-4 text-accent-purple" />
-                                        </button>
-                                    )) : (
-                                        <div className="px-6 py-6 text-center text-xs italic text-text-secondary">Nenhum curso encontrado.</div>
-                                    )}
-                                </motion.div>
-                            ) : null}
                         </div>
                     </Card>
 
-                    {error ? (
-                        <div className="flex items-center gap-3 rounded-xl border border-danger/20 bg-danger/8 p-4 text-sm text-danger">
-                            <AlertCircle className="h-5 w-5" />
-                            {error}
-                        </div>
-                    ) : null}
-                    {success ? (
-                        <div className="flex items-center gap-3 rounded-xl border border-success/20 bg-success/8 p-4 text-sm text-success">
-                            <CheckCircle className="h-5 w-5" />
-                            {success}
-                        </div>
+                    {supportsLyceumSync ? (
+                        <form onSubmit={handleLyceumPasswordSubmit}>
+                            <Card>
+                                <CardHeader
+                                    title="Senha do Lyceum"
+                                    subtitle="Use esta área apenas quando você trocar a senha do portal docente. Ela serve para as próximas sincronizações do scraper."
+                                    icon={ShieldCheck}
+                                />
+                                <div className="space-y-4">
+                                    <div className="rounded-[22px] border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-text-secondary">
+                                        A senha salva aqui não muda o seu login da NEXORA. Ela apenas permite que a automação continue entrando no Lyceum para atualizar turmas, alunos, notas e frequência.
+                                    </div>
+                                    {lyceumError ? (
+                                        <div className="rounded-[22px] border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-danger">
+                                            {lyceumError}
+                                        </div>
+                                    ) : null}
+                                    {lyceumSuccess ? (
+                                        <div className="rounded-[22px] border border-success/20 bg-success/8 px-4 py-3 text-sm text-success">
+                                            {lyceumSuccess}
+                                        </div>
+                                    ) : null}
+                                    <Input
+                                        label="Nova senha do Lyceum"
+                                        type="password"
+                                        icon={KeyRound}
+                                        value={lyceumForm.lyceum_password}
+                                        onChange={(event) => updateLyceumField('lyceum_password', event.target.value)}
+                                    />
+                                    <Input
+                                        label="Confirmar nova senha do Lyceum"
+                                        type="password"
+                                        icon={KeyRound}
+                                        value={lyceumForm.confirm_lyceum_password}
+                                        onChange={(event) => updateLyceumField('confirm_lyceum_password', event.target.value)}
+                                    />
+                                    <Button type="submit" icon={ShieldCheck} loading={lyceumSaving}>
+                                        Validar e atualizar senha do Lyceum
+                                    </Button>
+                                </div>
+                            </Card>
+                        </form>
                     ) : null}
 
-                    <div className="flex justify-end">
-                        <Button type="submit" loading={saving} icon={Save} className="px-8">
-                            Salvar alterações
-                        </Button>
-                    </div>
-                </form>
+                    <form onSubmit={handleSystemPasswordSubmit}>
+                        <Card>
+                            <CardHeader
+                                title="Senha da NEXORA"
+                                subtitle={supportsLyceumSync
+                                    ? 'Esta área altera somente a senha usada para entrar no sistema. Ela pode ser diferente da senha do Lyceum.'
+                                    : 'Esta área altera somente a senha usada para entrar no sistema.'}
+                                icon={LockKeyhole}
+                            />
+                            <div className="space-y-4">
+                                <div className="rounded-[22px] border border-accent-blue/15 bg-accent-blue/5 px-4 py-3 text-sm text-text-secondary">
+                                    Depois da aprovação da conta, você pode manter uma senha própria para a NEXORA.
+                                </div>
+                                {systemError ? (
+                                    <div className="rounded-[22px] border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-danger">
+                                        {systemError}
+                                    </div>
+                                ) : null}
+                                {systemSuccess ? (
+                                    <div className="rounded-[22px] border border-success/20 bg-success/8 px-4 py-3 text-sm text-success">
+                                        {systemSuccess}
+                                    </div>
+                                ) : null}
+                                <Input
+                                    label="Senha atual da NEXORA"
+                                    type="password"
+                                    icon={LockKeyhole}
+                                    value={systemForm.current_password}
+                                    onChange={(event) => updateSystemField('current_password', event.target.value)}
+                                />
+                                <Input
+                                    label="Nova senha da NEXORA"
+                                    type="password"
+                                    icon={LockKeyhole}
+                                    value={systemForm.new_password}
+                                    onChange={(event) => updateSystemField('new_password', event.target.value)}
+                                />
+                                <Input
+                                    label="Confirmar nova senha da NEXORA"
+                                    type="password"
+                                    icon={LockKeyhole}
+                                    value={systemForm.confirm_new_password}
+                                    onChange={(event) => updateSystemField('confirm_new_password', event.target.value)}
+                                />
+                                <Button type="submit" icon={LockKeyhole} loading={systemSaving}>
+                                    Atualizar senha da NEXORA
+                                </Button>
+                            </div>
+                        </Card>
+                    </form>
+                </div>
 
                 <div className="space-y-6">
-                    <Card className="p-6">
-                        <div className="mb-4 flex items-center justify-between">
-                            <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-                                <BookOpen className="h-4 w-4 text-accent-blue-light" />
-                                Disciplinas elegíveis do seu curso
-                            </h3>
-                            <span className="rounded-full bg-accent-purple/10 px-2 py-0.5 text-xs font-bold text-accent-purple">
-                                {linkedSubjects.length}
-                            </span>
+                    <Card>
+                        <CardHeader
+                            title="Resumo do Lyceum"
+                            icon={ShieldCheck}
+                        />
+                        <div className="grid grid-cols-1 gap-4">
+                            <SummaryTile label="Usuário atual" value={user?.username || '-'} />
+                            <SummaryTile label="Turmas sincronizadas" value={String(classesCount)} />
+                            <SummaryTile label="Alunos" value={String(studentsCount)} />
+                            <SummaryTile label="Cursos detectados" value={String((liveCatalog?.courses || []).length)} />
                         </div>
-                        <p className="mb-4 text-xs leading-6 text-text-secondary">
-                            Esta lista já considera os cursos que você salvou no perfil. Na próxima etapa, em Disciplinas matriculadas, você escolhe quais dessas disciplinas realmente leciona.
-                        </p>
-                        <div className="space-y-2">
-                            {linkedSubjectsPreview.length > 0 ? linkedSubjectsPreview.map((course) => (
-                                <div key={course.id || course.name} className="flex items-center justify-between rounded-lg bg-bg-elevated/35 p-3 text-xs">
-                                    <span className="truncate pr-3 text-text-secondary">{course.name}</span>
-                                    <span className="font-mono text-text-tertiary">{course.code || 'CURSO'}</span>
-                                </div>
-                            )) : (
-                                <p className="text-xs italic text-text-secondary">
-                                    Ainda não há disciplinas elegíveis carregadas para os cursos salvos no seu perfil.
-                                </p>
-                            )}
-                        </div>
-                        <Link to={coursesRoute} className="mt-5 block">
-                            <Button variant="secondary" className="w-full">
-                                Ver disciplinas e turmas
-                            </Button>
-                        </Link>
                     </Card>
 
-                    <Card className="border-accent-purple/20 bg-gradient-to-br from-accent-purple/10 to-accent-blue/10 p-6">
-                        <h4 className="text-sm font-semibold text-text-primary">Como funciona agora</h4>
-                        <p className="mt-2 text-sm leading-6 text-text-secondary">
-                            1. O professor salva os cursos acadêmicos no próprio perfil. 2. A NEXORA monta as disciplinas elegíveis de cada curso. 3. Na tela de disciplinas, o professor seleciona apenas as disciplinas que realmente leciona.
-                        </p>
+                    <Card>
+                        <CardHeader
+                            title="Cursos detectados"
+                            icon={ShieldCheck}
+                        />
+                        {(liveCatalog?.courses || []).length > 0 ? (
+                            <div className="space-y-3">
+                                {liveCatalog.courses.map((course) => (
+                                    <div key={course.academic_course_name} className="rounded-[22px] border border-border-subtle bg-bg-secondary/45 px-4 py-4">
+                                        <p className="text-sm font-semibold text-text-primary">{course.academic_course_name}</p>
+                                        <p className="mt-1 text-sm text-text-secondary">
+                                            {course.classes_count || 0} turmas - {course.students_count || 0} alunos
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-text-secondary">
+                                Os cursos aparecerão aqui assim que houver dados do Lyceum para a sua conta.
+                            </p>
+                        )}
                     </Card>
                 </div>
             </div>
-        </motion.div>
+        </div>
+    );
+}
+
+function ReadOnlyField({ label, value }) {
+    return (
+        <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/45 p-4">
+            <p className="text-sm font-medium text-text-secondary">{label}</p>
+            <p className="mt-2 text-sm font-semibold text-text-primary">{value}</p>
+        </div>
+    );
+}
+
+function SummaryTile({ label, value }) {
+    return (
+        <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/45 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-tertiary">{label}</p>
+            <p className="mt-1 text-sm font-semibold text-text-primary">{value}</p>
+        </div>
     );
 }

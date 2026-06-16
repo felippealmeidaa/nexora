@@ -1,6 +1,17 @@
 import axios from 'axios';
 
 const DEVICE_ID_KEY = 'nexora_device_id';
+export const AUTH_REQUIRED_EVENT = 'nexora:auth-required';
+
+function resolveApiBaseUrl() {
+    const configured = (import.meta.env.VITE_API_BASE_URL || '').trim();
+    if (!configured) {
+        return '/api';
+    }
+
+    const normalized = configured.replace(/\/+$/, '');
+    return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
+}
 
 function getDeviceId() {
     let deviceId = localStorage.getItem(DEVICE_ID_KEY);
@@ -17,8 +28,12 @@ function getDeviceLabel() {
     return `${platform} - ${brand}`;
 }
 
+function notifyAuthRequired() {
+    window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT));
+}
+
 const api = axios.create({
-    baseURL: '/api',
+    baseURL: resolveApiBaseUrl(),
     withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
@@ -76,14 +91,14 @@ api.interceptors.response.use(
                 return api(originalRequest);
             } catch (refreshError) {
                 if (!isAuthPage) {
-                    window.location.href = '/login';
+                    notifyAuthRequired();
                 }
                 return Promise.reject(refreshError);
             }
         }
 
         if (error.response?.status === 401 && !isAuthPage && !isPublicEndpoint && isAuthFlowEndpoint) {
-            window.location.href = '/login';
+            notifyAuthRequired();
         }
 
         return Promise.reject(error);

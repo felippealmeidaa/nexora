@@ -19,6 +19,7 @@ from app.models.professor import Professor, ProfessorCourse
 from app.models.scraped_data import ScrapedAttendance, ScrapedGrade, ScrapedSubject
 from app.models.student import Student, StudentStatus
 from app.models.user import User, UserRole
+from app.services.cache_service import cache_service
 from app.services.statistical_risk_service import StatisticalRiskService
 
 
@@ -45,6 +46,8 @@ def _clamp(value: float, minimum: float, maximum: float) -> float:
 
 
 class HistoricalAnalysisService:
+    WORKSPACE_CACHE_NAMESPACE = "historical-workspace-v3"
+    PROFESSOR_SCOPE_CACHE_NAMESPACE = "historical-professor-scope"
     _workspace_cache: dict[str, dict[str, Any]] = {}
     _workspace_cache_ttl_seconds = 86400
     _professor_scope_cache: dict[int, dict[str, Any]] = {}
@@ -54,10 +57,30 @@ class HistoricalAnalysisService:
     def clear_workspace_cache(cls):
         cls._workspace_cache.clear()
         cls._professor_scope_cache.clear()
+        cache_service.clear_namespaces(
+            cls.WORKSPACE_CACHE_NAMESPACE,
+            cls.PROFESSOR_SCOPE_CACHE_NAMESPACE,
+            "live-analysis-workspace",
+            "live-summary",
+            "live-catalog",
+        )
 
     def __init__(self, db: Session):
         self.db = db
         self.statistical_risk_service = StatisticalRiskService()
+
+    def spreadsheet_query_for_user(self, current_user: User):
+        return (
+            self.db.query(HistoricalSpreadsheet)
+            .filter(HistoricalSpreadsheet.professor_id == current_user.id)
+        )
+
+    def get_spreadsheet_for_user(self, current_user: User, spreadsheet_id: int) -> HistoricalSpreadsheet | None:
+        return (
+            self.spreadsheet_query_for_user(current_user)
+            .filter(HistoricalSpreadsheet.id == spreadsheet_id)
+            .first()
+        )
 
     def build_workspace(
         self,
@@ -88,6 +111,13 @@ class HistoricalAnalysisService:
         cached = self._workspace_cache.get(cache_key)
         if cached and float(cached.get("expires_at") or 0.0) > now:
             return cached["bundle"]
+        shared_cached = cache_service.get_json(self.WORKSPACE_CACHE_NAMESPACE, cache_key)
+        if shared_cached is not None:
+            self._workspace_cache[cache_key] = {
+                "expires_at": now + self._workspace_cache_ttl_seconds,
+                "bundle": shared_cached,
+            }
+            return shared_cached
 
         records, scope = self.get_scoped_records(
             current_user=current_user,
@@ -108,7 +138,7 @@ class HistoricalAnalysisService:
             "between_classes": [],
             "by_semester": [],
             "high_risk_classes": [],
-            "risk_topics": [],
+            "intervention_window": [],
             "discipline_bottlenecks": [],
             "discipline_risk": [],
             "intervention_priorities": [],
@@ -154,6 +184,12 @@ class HistoricalAnalysisService:
                 "expires_at": now + self._workspace_cache_ttl_seconds,
                 "bundle": bundle,
             }
+            cache_service.set_json(
+                self.WORKSPACE_CACHE_NAMESPACE,
+                cache_key,
+                bundle,
+                ttl_seconds=self._workspace_cache_ttl_seconds,
+            )
             return bundle
 
         class_groups = self._group_by_class(prepared_records)
@@ -171,7 +207,7 @@ class HistoricalAnalysisService:
                 "between_classes": self._build_between_classes(class_groups, overview),
                 "by_semester": semester_groups,
                 "high_risk_classes": self._build_high_risk_classes(class_groups),
-                "risk_topics": self._build_risk_topics(class_groups, subject_groups, semester_groups),
+                "intervention_window": self._build_intervention_window(prepared_records),
                 "discipline_bottlenecks": self._build_bottlenecks(subject_groups, current_user.role),
                 "discipline_risk": self._build_discipline_risk(prepared_records),
                 "intervention_priorities": self._build_interventions(class_groups, current_user.role),
@@ -181,7 +217,7 @@ class HistoricalAnalysisService:
                 "student_segments": self._build_student_segments(prepared_records),
                 "risk_projection": self._build_risk_projection(prepared_records),
                 "heatmap": self._build_heatmap(class_groups),
-                "intervention_simulator": self._build_intervention_simulator(overview),
+                "intervention_simulator": self._build_intervention_simulator(prepared_records, overview),
                 "model_diagnostics": model_diagnostics,
             },
         }
@@ -190,6 +226,12 @@ class HistoricalAnalysisService:
             "expires_at": now + self._workspace_cache_ttl_seconds,
             "bundle": bundle,
         }
+        cache_service.set_json(
+            self.WORKSPACE_CACHE_NAMESPACE,
+            cache_key,
+            bundle,
+            ttl_seconds=self._workspace_cache_ttl_seconds,
+        )
         return bundle
 
     def get_scoped_records(
@@ -200,23 +242,15 @@ class HistoricalAnalysisService:
         subject: str | None = None,
         spreadsheet_id: int | None = None,
     ) -> tuple[list[HistoricalRecord], dict[str, Any]]:
-        query = self.db.query(HistoricalRecord)
-        
-        # 1. Filtros de Escopo / Autorização
-        if current_user.role == UserRole.PROFESSOR:
-            query = query.filter(HistoricalRecord.professor_id == current_user.id)
-            if spreadsheet_id is None:
-                professor = self.db.query(Professor).filter(Professor.user_id == current_user.id).first()
-                if professor:
-                    academic_courses = [ac.course_name.strip() for ac in professor.academic_courses if ac.course_name]
-                    if academic_courses:
-                        query = query.filter(or_(*[HistoricalRecord.course_name.ilike(f"%{course}%") for course in academic_courses]))
-        elif current_user.role == UserRole.COORDINATOR:
-            coordinator = self.db.query(Coordinator).filter(Coordinator.user_id == current_user.id).first()
-            if coordinator and coordinator.academic_course_name:
-                query = query.filter(HistoricalRecord.course_name.ilike(f"%{coordinator.academic_course_name.strip()}%"))
-        
-        # 2. Otimização Crítica: Aplicar filtros estruturais diretamente na query do Banco
+        query = (
+            self.db.query(HistoricalRecord)
+            .join(HistoricalSpreadsheet, HistoricalRecord.spreadsheet_id == HistoricalSpreadsheet.id)
+            .filter(
+                HistoricalSpreadsheet.professor_id == current_user.id,
+                HistoricalRecord.professor_id == current_user.id,
+            )
+        )
+
         if spreadsheet_id is not None:
             query = query.filter(HistoricalRecord.spreadsheet_id == spreadsheet_id)
             
@@ -243,10 +277,10 @@ class HistoricalAnalysisService:
         
         scope = {
             "role": current_user.role.value.lower(),
-            "label": "Leitura restrita",
-            "description": "Base historica filtrada pelo seu nivel de acesso.",
+            "label": "Base histórica pessoal",
+            "description": "Somente planilhas enviadas por você entram neste recorte.",
             "can_upload": current_user.role in (UserRole.PROFESSOR, UserRole.ADMIN),
-            "access_level": "restricted",
+            "access_level": "owner",
             "course_name": None,
         }
 
@@ -271,18 +305,16 @@ class HistoricalAnalysisService:
                         scoped = []
                 else:
                     scoped = []
-                
-                # Fallback de segurança: se o filtro estrito de disciplinas resultar vazio,
-                # permitimos que o professor veja todos os registros que ele mesmo subiu.
+
                 if not scoped and all_records:
                     scoped = all_records
             else:
                 scoped = all_records
             professor_scope = self._get_professor_scope(current_user)
             scope.update({
-                "label": "Analises do professor",
-                "description": "Comparativos e riscos das suas planilhas e turmas integradas.",
-                "access_level": "classroom",
+                "label": "Análises do professor",
+                "description": "Comparativos e riscos das planilhas enviadas por você.",
+                "access_level": "owner",
                 "course_name": professor_scope["academic_courses"],
                 "subject_names": professor_scope["subjects"],
             })
@@ -291,27 +323,19 @@ class HistoricalAnalysisService:
             if not coordinator:
                 raise HTTPException(status_code=404, detail="Perfil de coordenador nao encontrado.")
 
-            normalized_course = _normalize_text(coordinator.academic_course_name)
-            scoped = [
-                record for record in all_records
-                if normalized_course
-                and (
-                    normalized_course in _normalize_text(record.course_name)
-                    or _normalize_text(record.course_name) in normalized_course
-                )
-            ]
+            scoped = all_records
             scope.update({
-                "label": "Analises da coordenacao",
-                "description": "Visao ampliada do curso, com comparativos e prioridades de intervencao.",
-                "access_level": "expanded",
+                "label": "Análises da coordenação",
+                "description": "Somente planilhas enviadas por você entram neste recorte.",
+                "access_level": "owner",
                 "course_name": coordinator.academic_course_name,
             })
         elif current_user.role == UserRole.ADMIN:
             scoped = all_records
             scope.update({
-                "label": "Analises da pro-reitoria",
-                "description": "Leitura ampliada da base historica, com acesso a upload e analises docentes em escala institucional.",
-                "access_level": "institutional",
+                "label": "Análises da pró-reitoria",
+                "description": "Somente planilhas enviadas por você entram neste recorte.",
+                "access_level": "owner",
             })
         else:
             raise HTTPException(status_code=403, detail="Acesso nao autorizado.")
@@ -334,6 +358,13 @@ class HistoricalAnalysisService:
         cached = self._professor_scope_cache.get(current_user.id)
         if cached and cached.get("expires_at", 0.0) > now:
             return cached["data"]
+        shared_cached = cache_service.get_json(self.PROFESSOR_SCOPE_CACHE_NAMESPACE, f"user:{current_user.id}")
+        if shared_cached is not None:
+            self._professor_scope_cache[current_user.id] = {
+                "expires_at": now + self._professor_scope_cache_ttl_seconds,
+                "data": shared_cached,
+            }
+            return shared_cached
 
         professor = self.db.query(Professor).filter(Professor.user_id == current_user.id).first()
         if not professor:
@@ -425,6 +456,12 @@ class HistoricalAnalysisService:
             "expires_at": now + self._professor_scope_cache_ttl_seconds,
             "data": data,
         }
+        cache_service.set_json(
+            self.PROFESSOR_SCOPE_CACHE_NAMESPACE,
+            f"user:{current_user.id}",
+            data,
+            ttl_seconds=self._professor_scope_cache_ttl_seconds,
+        )
         return data
     def _matches_any_scope(self, value: str | None, scope_keys: set[str], allow_contains: bool = True) -> bool:
         normalized_value = _normalize_text(value)
@@ -544,9 +581,9 @@ class HistoricalAnalysisService:
                 "description": "Acompanha a evolução de notas e presença ao longo dos semestres.",
             },
             {
-                "id": "risk_topics",
-                "label": "Tópicos de Alerta",
-                "description": "Focos de atenção baseados em queda de notas ou faltas dos alunos.",
+                "id": "intervention_window",
+                "label": "Janela de Intervenção",
+                "description": "Classifica alunos em zonas de urgência e estima quanto tempo ainda há para agir.",
             },
             {
                 "id": "student_trends",
@@ -633,6 +670,13 @@ class HistoricalAnalysisService:
                 if value > 0.0001
             ][:3]
 
+            # Contar alunos afetados por cada driver (causa)
+            driver_student_counts = defaultdict(int)
+            for item in items:
+                if item.get("risk_level") in ("medium", "high", "critical"):
+                    for d in item.get("risk_drivers") or []:
+                        driver_student_counts[d] += 1
+
             rows.append({
                 "id": f"discipline::{_normalize_text(subject)}",
                 "subject": subject,
@@ -644,6 +688,7 @@ class HistoricalAnalysisService:
                 "avg_grade": avg_grade,
                 "avg_attendance": avg_attendance,
                 "top_drivers": top_drivers,
+                "driver_student_counts": dict(driver_student_counts),
                 "real_avg_grade": real_avg_grade,
                 "real_avg_attendance": real_avg_attendance,
                 "real_avg_risk": real_avg_risk,
@@ -669,29 +714,24 @@ class HistoricalAnalysisService:
         discipline_difficulty: float,
     ) -> dict[str, float]:
         grade_factor = 1 - _clamp(grade_average / 10, 0.0, 1.0)
-        first_grade = grade_average if first_assessment is None else float(first_assessment)
-        first_assessment_factor = 1 - _clamp(first_grade / 10, 0.0, 1.0)
         attendance_factor = 1 - _clamp(attendance / 100, 0.0, 1.0)
         activity_factor = 1 - _clamp(activity_score / 100, 0.0, 1.0)
         volatility_factor = _clamp(grade_std / 4, 0.0, 1.0)
         approval_factor = 0.0 if approved else 1.0
         work_factor = work_balance_score if is_working else 0.0
-        history_factor = _clamp(failures / 3, 0.0, 1.0)
-        load_factor = _clamp((max(0, load - 4)) / 4, 0.0, 1.0)
-        difficulty_factor = _clamp(discipline_difficulty, 0.0, 1.0)
 
         return {
-            "nota": round(grade_factor * 0.28, 4),
-            "primeira_avaliacao": round(first_assessment_factor * 0.08, 4),
-            "presenca": round(attendance_factor * 0.19, 4),
-            "queda_presenca": round(_clamp(attendance_drop, 0.0, 1.0) * 0.06, 4),
-            "atividade": round(activity_factor * 0.14, 4),
+            "nota": round(grade_factor * 0.38, 4),
+            "primeira_avaliacao": 0.0,
+            "presenca": round(attendance_factor * 0.26, 4),
+            "queda_presenca": 0.0,
+            "atividade": round(activity_factor * 0.17, 4),
             "oscilacao": round(volatility_factor * 0.05, 4),
-            "aprovacao": round(approval_factor * 0.05, 4),
-            "historico": round(history_factor * 0.06, 4),
-            "carga": round(load_factor * 0.03, 4),
-            "dificuldade_disciplina": round(difficulty_factor * 0.03, 4),
-            "trabalho": round(work_factor * 0.03, 4),
+            "aprovacao": round(approval_factor * 0.07, 4),
+            "historico": 0.0,
+            "carga": 0.0,
+            "dificuldade_disciplina": 0.0,
+            "trabalho": round(work_factor * 0.07, 4),
         }
 
     def _build_student_trends(self, prepared_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -784,50 +824,92 @@ class HistoricalAnalysisService:
 
         labels = {
             "nota": "Nota",
-            "primeira_avaliacao": "Primeira avaliacao",
-            "presenca": "Presenca",
-            "queda_presenca": "Queda de presenca",
+            "primeira_avaliacao": "Primeira avaliação",
+            "presenca": "Presença",
+            "queda_presenca": "Queda de presença",
             "atividade": "Atividade",
-            "oscilacao": "Oscilacao de notas",
-            "aprovacao": "Reprovacao",
-            "historico": "Historico de reprovacoes",
+            "oscilacao": "Oscilação de notas",
+            "aprovacao": "Reprovação",
+            "historico": "Histórico de reprovações",
             "carga": "Carga de disciplinas",
             "dificuldade_disciplina": "Dificuldade da disciplina",
             "trabalho": "Trabalho",
         }
 
-        total_contribution = sum(totals.values()) / count if count > 0 else 0.0
-        total_importance = 0.0
-        if model_diagnostics and "factor_importance" in model_diagnostics:
-            total_importance = sum(float(model_diagnostics["factor_importance"].get(k, 0.0)) for k in totals)
+        # Filtrar apenas os fatores que de fato são utilizados e têm contribuição > 0
+        active_factors = {
+            key: total for key, total in totals.items()
+            if total > 0.0001
+        }
 
-        rows = []
-        for key, total in totals.items():
+        if not active_factors:
+            return []
+
+        # Recalcular as somas para os fatores ativos
+        total_active_contribution = sum(active_factors.values()) / count if count > 0 else 0.0
+        
+        factor_importances = (model_diagnostics or {}).get("factor_importance", {})
+        total_active_importance = sum(float(factor_importances.get(k, 0.0)) for k in active_factors)
+
+        raw_rows = []
+        for key, total in active_factors.items():
             avg_contribution = total / count
-            model_importance = float((model_diagnostics or {}).get("factor_importance", {}).get(key, 0.0))
-            
-            # Normalizar a contribuição média para que o total represente 100% da causa raiz
-            if total_contribution > 0:
-                avg_contribution_percent = round((avg_contribution / total_contribution) * 100, 2)
-            else:
-                avg_contribution_percent = 0.0
+            model_importance = float(factor_importances.get(key, 0.0))
 
-            # Normalizar a importância do modelo para que a soma represente 100%
-            if total_importance > 0:
-                model_importance_percent = round((model_importance / total_importance) * 100, 2)
-            else:
-                model_importance_percent = round(model_importance * 100, 2)
+            avg_contribution_percent_raw = (
+                (avg_contribution / total_active_contribution) * 100
+                if total_active_contribution > 0 else 0.0
+            )
 
-            rows.append({
-                "id": f"factor::{key}",
+            model_importance_percent_raw = (
+                (model_importance / total_active_importance) * 100
+                if total_active_importance > 0 else 0.0
+            )
+
+            raw_rows.append({
                 "key": key,
                 "label": labels.get(key, key),
                 "avg_contribution": round(avg_contribution, 4),
-                "avg_contribution_percent": avg_contribution_percent,
+                "avg_contribution_percent_raw": avg_contribution_percent_raw,
                 "model_importance": round(model_importance, 4),
-                "model_importance_percent": model_importance_percent,
+                "model_importance_percent_raw": model_importance_percent_raw,
             })
-        rows.sort(key=lambda r: (r["avg_contribution"], r.get("model_importance", 0.0)), reverse=True)
+
+        # Ordenar decrescente por contribuição
+        raw_rows.sort(key=lambda r: r["avg_contribution_percent_raw"], reverse=True)
+
+        # Arredondar os percentuais e calcular a soma dos arredondados
+        total_rounded_contribution = 0.0
+        total_rounded_importance = 0.0
+        for r in raw_rows:
+            r["avg_contribution_percent"] = round(r["avg_contribution_percent_raw"], 2)
+            total_rounded_contribution += r["avg_contribution_percent"]
+            
+            r["model_importance_percent"] = round(r["model_importance_percent_raw"], 2)
+            total_rounded_importance += r["model_importance_percent"]
+
+        # Ajustar o resíduo do arredondamento na maior contribuição (primeira posição) para somar 100%
+        diff_contribution = round(100.0 - total_rounded_contribution, 2)
+        if raw_rows and abs(diff_contribution) > 0.0001:
+            raw_rows[0]["avg_contribution_percent"] = round(raw_rows[0]["avg_contribution_percent"] + diff_contribution, 2)
+
+        diff_importance = round(100.0 - total_rounded_importance, 2)
+        if raw_rows and abs(diff_importance) > 0.0001 and total_active_importance > 0:
+            raw_rows[0]["model_importance_percent"] = round(raw_rows[0]["model_importance_percent"] + diff_importance, 2)
+
+        # Montar as linhas finais formatadas para a API
+        rows = []
+        for r in raw_rows:
+            rows.append({
+                "id": f"factor::{r['key']}",
+                "key": r["key"],
+                "label": r["label"],
+                "avg_contribution": r["avg_contribution"],
+                "avg_contribution_percent": r["avg_contribution_percent"],
+                "model_importance": r["model_importance"],
+                "model_importance_percent": r["model_importance_percent"],
+            })
+        
         return rows
 
     def _build_early_alerts(self, prepared_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -844,7 +926,7 @@ class HistoricalAnalysisService:
                 tags.append("Risco alto")
             if grade < 6.0:
                 tags.append("Nota baixa")
-            if attendance < 75:
+            if attendance < 70:
                 tags.append("Presenca baixa")
             if activity < 55:
                 tags.append("Baixa atividade")
@@ -856,7 +938,7 @@ class HistoricalAnalysisService:
 
             priority = 0
             priority += 3 if risk_score >= 0.75 else 2 if risk_score >= 0.58 else 0
-            priority += 2 if attendance < 65 else 1 if attendance < 75 else 0
+            priority += 2 if attendance < 60 else 1 if attendance < 70 else 0
             priority += 2 if grade < 5.0 else 1 if grade < 6.0 else 0
             priority += 1 if activity < 45 else 0
             priority += 1 if is_working else 0
@@ -890,7 +972,7 @@ class HistoricalAnalysisService:
         alerts.sort(key=lambda r: (r.get("priority", 0), r.get("risk_score", 0.0)), reverse=True)
         return alerts[:200]
 
-    def _build_intervention_simulator(self, overview: dict[str, Any]) -> dict[str, Any]:
+    def _build_intervention_simulator(self, prepared_records: list[dict[str, Any]], overview: dict[str, Any]) -> dict[str, Any]:
         baseline_grade = float(overview.get("avg_grade") or 0.0)
         baseline_attendance = float(overview.get("avg_attendance") or 0.0)
         baseline_activity = float(overview.get("avg_activity") or 0.0)
@@ -946,6 +1028,29 @@ class HistoricalAnalysisService:
             scenario["risk_change_percent"] = round((scenario_risk - baseline_risk) * 100, 2)
 
         scenarios.sort(key=lambda s: s.get("risk", 0.0))
+
+        # Agrupar registros por disciplina
+        grouped = defaultdict(list)
+        for record in prepared_records:
+            sub = record.get("subject") or "Geral"
+            grouped[str(sub)].append(record)
+
+        subjects_baseline = {}
+        for sub, items in grouped.items():
+            sub_grade = _safe_mean([float(i.get("grade_average") or 0.0) for i in items])
+            sub_attendance = _safe_mean([float(i.get("attendance") or 0.0) for i in items])
+            sub_activity = _safe_mean([float(i.get("activity_score") or 0.0) for i in items])
+            sub_risk = simulate(sub_grade, sub_attendance, sub_activity)
+            sub_students = len({i.get("student_name") for i in items if i.get("student_name")})
+
+            subjects_baseline[sub] = {
+                "grade": round(sub_grade, 2),
+                "attendance": round(sub_attendance, 2),
+                "activity": round(sub_activity, 2),
+                "risk": round(sub_risk, 4),
+                "total_students": sub_students
+            }
+
         return {
             "baseline": {
                 "grade": round(baseline_grade, 2),
@@ -953,37 +1058,36 @@ class HistoricalAnalysisService:
                 "activity": round(baseline_activity, 2),
                 "risk": baseline_risk,
             },
+            "subjects": subjects_baseline,
             "scenarios": scenarios,
         }
 
     def _build_student_segments(self, prepared_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        segments: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        segments = {
+            "Sem Risco": [],
+            "Risco de Reprovação por Nota": [],
+            "Risco de Reprovação por Presença": [],
+            "Risco Crítico (Nota e Presença)": []
+        }
 
         for record in prepared_records:
             grade = float(record.get("grade_average") or 0.0)
             attendance = float(record.get("attendance") or 0.0)
-            activity = float(record.get("activity_score") or 0.0)
-            risk = float(record.get("risk_score") or 0.0)
 
-            if risk >= 0.75:
-                label = "Risco critico"
-            elif risk >= 0.58:
-                label = "Risco alto"
-            elif grade < 6.0 and attendance < 75:
-                label = "Nota e presenca baixas"
+            if grade < 6.0 and attendance < 70:
+                label = "Risco Crítico (Nota e Presença)"
+            elif attendance < 70:
+                label = "Risco de Reprovação por Presença"
             elif grade < 6.0:
-                label = "Nota baixa"
-            elif attendance < 75:
-                label = "Presenca baixa"
-            elif activity < 55:
-                label = "Baixa atividade"
+                label = "Risco de Reprovação por Nota"
             else:
-                label = "Sem alerta"
+                label = "Sem Risco"
 
             segments[label].append(record)
 
         rows: list[dict[str, Any]] = []
-        for label, items in segments.items():
+        for label in ["Sem Risco", "Risco de Reprovação por Nota", "Risco de Reprovação por Presença", "Risco Crítico (Nota e Presença)"]:
+            items = segments[label]
             rows.append({
                 "id": f"segment::{_normalize_text(label)}",
                 "label": label,
@@ -995,7 +1099,6 @@ class HistoricalAnalysisService:
                 "avg_activity": _safe_mean([float(i.get("activity_score") or 0.0) for i in items]),
             })
 
-        rows.sort(key=lambda r: (r.get("avg_risk", 0.0), r.get("students", 0)), reverse=True)
         return rows
 
     def _build_risk_projection(self, prepared_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1645,65 +1748,131 @@ class HistoricalAnalysisService:
                 unique_ranked.append(item)
         return unique_ranked[:8]
 
-    def _build_risk_topics(
+    def _build_intervention_window(
         self,
-        class_groups: list[dict[str, Any]],
-        subject_groups: list[dict[str, Any]],
-        semester_groups: list[dict[str, Any]],
+        prepared_records: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        topics: list[dict[str, Any]] = []
+        """
+        Janela de Intervenção Crítica.
+        Classifica cada aluno em uma zona de urgência e estima o tempo restante para agir.
 
-        for item in subject_groups[:4]:
-            topics.append({
-                "id": f"subject::{item['id']}",
-                "type": "Disciplina",
-                "label": item["label"],
-                "course_name": item["course_name"],
-                "semester": item["semester"],
-                "risk_level": item["risk_level"],
-                "risk_score": item["risk_score"],
-                "affected_students": item["critical_students"],
-                "signal": self._build_topic_signal(item["avg_grade"], item["avg_attendance"], item["avg_activity"]),
-                "evidence": self._build_topic_evidence(item),
-                "recommendation": item["recommended_focus"],
+        Zonas:
+          - urgente   : risco >= 0.75 — ultrapassou o ponto crítico, ação imediata
+          - recuperavel: 0.50 <= risco < 0.75 — ainda há janela de recuperação
+          - preventivo : risco < 0.50 mas com tendência de piora — monitoramento ativo
+        """
+        # Agrupa múltiplos registros do mesmo aluno (ex: várias disciplinas)
+        by_student: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for record in prepared_records:
+            student = record.get("student_name") or "Aluno sem nome"
+            by_student[student].append(record)
+
+        rows: list[dict[str, Any]] = []
+
+        driver_labels = {
+            "nota": "Nota baixa",
+            "primeira_avaliacao": "Primeira avaliação ruim",
+            "presenca": "Faltas excessivas",
+            "queda_presenca": "Queda de presença",
+            "atividade": "Pouca atividade",
+            "oscilacao": "Oscilação de notas",
+            "aprovacao": "Reprovação anterior",
+            "historico": "Histórico ruim",
+            "carga": "Muitas disciplinas",
+            "dificuldade_disciplina": "Disciplina difícil",
+            "trabalho": "Concilia trabalho",
+        }
+
+        zone_recommendations = {
+            "urgente": [
+                "Entrar em contato com o aluno hoje para entender a situação e oferecer apoio direto.",
+                "Chamar o aluno para uma conversa individual e acionar o serviço de apoio pedagógico.",
+                "Acionar a coordenação e familiares se necessário — o risco de evasão é muito alto.",
+            ],
+            "recuperavel": [
+                "Agendar uma conversa nos próximos dias para apresentar um plano de recuperação personalizado.",
+                "Oferecer monitoria ou reforço focado nos pontos de maior dificuldade identificados.",
+                "Enviar um feedback positivo e um roteiro de ação claro para o aluno recuperar o desempenho.",
+            ],
+            "preventivo": [
+                "Monitorar semanalmente os indicadores do aluno para agir cedo se a situação piorar.",
+                "Enviar uma mensagem de incentivo e verificar se o aluno está conseguindo acompanhar o ritmo.",
+                "Incluir o aluno na lista de acompanhamento e verificar seu desempenho na próxima avaliação.",
+            ],
+        }
+
+        for student_name, records in by_student.items():
+            current_risk = _safe_mean([float(r.get("risk_score") or 0.0) for r in records])
+            avg_grade = _safe_mean([float(r.get("grade_average") or 0.0) for r in records])
+            avg_attendance = _safe_mean([float(r.get("attendance") or 0.0) for r in records])
+
+            # Velocidade de piora: diferença de risco real vs projetado como proxy de tendência
+            real_risk = _safe_mean([float(r.get("real_risk_score") or r.get("risk_score") or 0.0) for r in records])
+            risk_velocity = max(0.0, current_risk - real_risk)  # positivo = piorando
+
+            # Determinar zona
+            if current_risk >= 0.75:
+                zone = "urgente"
+                zone_label = "Urgência Crítica"
+                days_estimate = None  # já passou do ponto
+            elif current_risk >= 0.50:
+                zone = "recuperavel"
+                zone_label = "Ainda Recuperável"
+                # Estima dias até cruzar 0.75 com base na velocidade
+                if risk_velocity > 0.001:
+                    days_to_critical = int((0.75 - current_risk) / risk_velocity * 30)
+                    days_estimate = max(7, min(days_to_critical, 90))
+                else:
+                    days_estimate = 60  # sem tendência clara, assume prazo médio
+            elif risk_velocity > 0.02 or avg_grade < 6.0 or avg_attendance < 70.0:
+                zone = "preventivo"
+                zone_label = "Monitoramento Preventivo"
+                days_estimate = 90
+            else:
+                continue  # aluno sem sinal de risco — não inclui na janela
+
+            # Principais causas do risco
+            driver_totals: dict[str, float] = defaultdict(float)
+            for r in records:
+                for key, val in (r.get("risk_breakdown") or {}).items():
+                    try:
+                        driver_totals[str(key)] += float(val or 0.0)
+                    except (TypeError, ValueError):
+                        continue
+            top_drivers = [
+                driver_labels.get(k, k)
+                for k, _ in sorted(driver_totals.items(), key=lambda kv: kv[1], reverse=True)
+                if driver_totals[k] > 0.0001
+            ][:3]
+
+            # Recomendação determinística baseada no hash do nome
+            hash_seed = sum(ord(c) for c in student_name) % 3
+            recommendation = zone_recommendations[zone][hash_seed]
+
+            # Disciplinas com maior risco para este aluno
+            subjects = sorted(
+                {r.get("subject") for r in records if r.get("subject")}
+            )
+
+            rows.append({
+                "id": f"iw::{_normalize_text(student_name)}",
+                "student_name": student_name,
+                "zone": zone,
+                "zone_label": zone_label,
+                "current_risk": round(current_risk, 4),
+                "risk_pct": round(current_risk * 100),
+                "avg_grade": avg_grade,
+                "avg_attendance": avg_attendance,
+                "days_estimate": days_estimate,
+                "top_drivers": top_drivers,
+                "recommendation": recommendation,
+                "subjects": subjects[:3],
             })
 
-        for item in class_groups[:3]:
-            topics.append({
-                "id": f"class::{item['id']}",
-                "type": "Turma",
-                "label": item["label"],
-                "course_name": item["course_name"],
-                "semester": item["semester"],
-                "risk_level": item["risk_level"],
-                "risk_score": item["risk_score"],
-                "affected_students": item["critical_students"],
-                "signal": "Turma com concentracao relevante de alunos em alerta.",
-                "evidence": self._build_topic_evidence(item),
-                "recommendation": item["recommended_focus"],
-            })
-
-        for item in semester_groups:
-            if item["avg_risk"] >= 0.58 or item["grade_delta"] <= -0.4:
-                topics.append({
-                    "id": item["id"],
-                    "type": "Semestre",
-                    "label": item["semester"],
-                    "course_name": "Base consolidada",
-                    "semester": item["semester"],
-                    "risk_level": self._classify_risk(item["avg_risk"]),
-                    "risk_score": item["avg_risk"],
-                    "affected_students": item["students"],
-                    "signal": "Periodo com piora relevante de risco ou queda de nota.",
-                    "evidence": (
-                        f"Nota media {item['avg_grade']:.2f}, risco {item['avg_risk'] * 100:.0f}%, "
-                        f"presenca {item['avg_attendance']:.1f}%."
-                    ),
-                    "recommendation": self._build_semester_recommendation(item),
-                })
-
-        topics.sort(key=lambda item: (item["risk_score"], item["affected_students"]), reverse=True)
-        return topics[:8]
+        # Ordenação: urgente primeiro, depois recuperável, depois preventivo; dentro de cada zona por risco desc
+        zone_order = {"urgente": 0, "recuperavel": 1, "preventivo": 2}
+        rows.sort(key=lambda r: (zone_order.get(r["zone"], 9), -r["current_risk"]))
+        return rows[:40]
 
     def _build_bottlenecks(self, subject_groups: list[dict[str, Any]], role: UserRole) -> list[dict[str, Any]]:
         if role not in (UserRole.COORDINATOR, UserRole.ADMIN):

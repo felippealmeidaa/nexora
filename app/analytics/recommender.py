@@ -58,7 +58,7 @@ class AcademicRecommender:
         1. GPA < 4.0 → Intervenção urgente
         2. GPA < 6.0 → Tutoria recomendada
         3. Frequência < 60% → Alerta de frequência (crítico)
-        4. Frequência < 75% → Alerta de frequência
+        4. Frequência < 70% → Alerta de frequência
         5. Reprovações >= 3 → Redução de carga sugerida
         6. Risco evasão >= 0.5 → Atenção prioritária
         7. GPA >= 9.0 → Reconhecimento por destaque
@@ -138,7 +138,7 @@ class AcademicRecommender:
                 target_name=student_name,
                 metrics=metrics,
             ))
-        elif attendance_rate < 75.0:
+        elif attendance_rate < 70.0:
             recs.append(Recommendation(
                 type=RecommendationType.ATTENDANCE_ALERT,
                 priority=Priority.MEDIUM,

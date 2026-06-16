@@ -1,24 +1,20 @@
 import {
     Activity,
-    BookOpen,
     BrainCircuit,
+    Database,
     FileSpreadsheet,
-    GraduationCap,
     LayoutDashboard,
-    Lightbulb,
+    MessageSquare,
     ScrollText,
     Shield,
-    Sparkles,
-    TrendingUp,
     UserCircle2,
-    Users,
 } from 'lucide-react';
 
 const ROLE_META = {
     admin: {
-        label: 'Pró-Reitor',
+        label: 'Admin',
         area: 'Supervisão acadêmica ampliada',
-        shortLabel: 'Pró-Reitoria',
+        shortLabel: 'Admin',
         accent: 'from-accent-blue-dark via-accent-blue to-accent-purple',
         softAccent: 'from-accent-blue-dark/8 via-accent-blue/10 to-accent-purple/14',
         badge: 'bg-accent-blue-dark/10 text-accent-blue-dark border-accent-blue/15',
@@ -55,53 +51,6 @@ const ROLE_META = {
         dot: 'bg-accent-indigo',
         home: '/professor/dashboard',
     },
-    student: {
-        label: 'Aluno',
-        area: 'Jornada acadêmica',
-        shortLabel: 'Aluno',
-        accent: 'from-accent-blue via-accent-blue-light to-accent-cyan',
-        softAccent: 'from-accent-blue/10 via-accent-blue-light/10 to-accent-cyan/12',
-        badge: 'bg-accent-blue/10 text-accent-blue border-accent-blue/15',
-        dot: 'bg-accent-blue',
-        home: '/student/dashboard',
-    },
-};
-
-const NAV_BY_ROLE = {
-    admin: [
-        { icon: Activity, label: 'Dashboard Pró-Reitoria', description: 'Alertas críticos, turmas e alunos em risco', to: '/proreitor/dashboard' },
-        { icon: BookOpen, label: 'Disciplinas acompanhadas', description: 'Componentes, turmas e alunos vinculados', to: '/proreitor/courses' },
-        { icon: ScrollText, label: 'Subir planilhas', description: 'Envio, normalização e processamento por IA', to: '/proreitor/historical-upload' },
-        { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Lista de arquivos e análises com IA integradas', to: '/proreitor/historical-data' },
-        { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Previsões e análise de dados preditivos', to: '/proreitor/analysis-center' },
-        { icon: UserCircle2, label: 'Meu perfil', description: 'Dados, cursos e configurações da pró-reitoria', to: '/proreitor/profile' },
-    ],
-    viewer: [
-        { icon: LayoutDashboard, label: 'Visão institucional', description: 'KPIs globais e mapa de risco', to: '/' },
-        { icon: Users, label: 'Base acadêmica', description: 'Corpo discente monitorado', to: '/students' },
-        { icon: TrendingUp, label: 'Indicadores globais', description: 'Análises e desempenho agregado', to: '/analytics' },
-    ],
-    coordinator: [
-        { icon: Shield, label: 'Painel do curso', description: 'Predições, tendências e alertas', to: '/coordinator/dashboard' },
-        { icon: BrainCircuit, label: 'Central analítica', description: 'Leitura ampliada do curso e intervenções', to: '/coordinator/analysis-center' },
-        { icon: Users, label: 'Alunos do curso', description: 'Busca e acompanhamento da base', to: '/students' },
-        { icon: TrendingUp, label: 'Relatórios analíticos', description: 'Estatísticas e comparativos', to: '/analytics' },
-        { icon: BrainCircuit, label: 'Predições por turma', description: 'Risco acadêmico por segmento', to: '/predictions' },
-        { icon: Lightbulb, label: 'Plano de ação', description: 'Recomendações operacionais', to: '/recommendations' },
-        { icon: Sparkles, label: 'Insights de IA', description: 'Leituras sintéticas para decisão', to: '/ai-insights' },
-    ],
-    professor: [
-        { icon: Activity, label: 'Dashboard docente', description: 'Alertas críticos, turmas e alunos em risco', to: '/professor/dashboard' },
-        { icon: BookOpen, label: 'Disciplinas matriculadas', description: 'Componentes, turmas e alunos vinculados', to: '/professor/courses' },
-        { icon: ScrollText, label: 'Subir planilhas', description: 'Envio, normalização e processamento por IA', to: '/professor/historical-upload' },
-        { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Lista de arquivos e análises com IA integradas', to: '/professor/historical-data' },
-        { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Previsões e análise de dados preditivos', to: '/professor/analysis-center' },
-        { icon: UserCircle2, label: 'Meu perfil', description: 'Dados docentes e cursos vinculados', to: '/professor/profile' },
-    ],
-    student: [
-        { icon: GraduationCap, label: 'Meu painel', description: 'Desempenho, risco e próximos passos', to: '/student/dashboard' },
-        { icon: UserCircle2, label: 'Meu perfil', description: 'Dados pessoais, acadêmicos e Lyceum', to: '/student/profile' },
-    ],
 };
 
 function normalizeRole(role) {
@@ -117,9 +66,65 @@ export function getDefaultRoute(role) {
     return getRoleMeta(role).home;
 }
 
-export function getNavItems(role) {
+export function getNavItems(role, dataMode = 'real') {
     const normalizedRole = normalizeRole(role);
-    return NAV_BY_ROLE[normalizedRole] || NAV_BY_ROLE.viewer;
+    const isHistoricalMode = dataMode === 'historical';
+
+    if (normalizedRole === 'admin') {
+        return [
+            { icon: Activity, label: 'Dashboard admin', description: 'Visão resumida do modo ativo', to: '/proreitor/dashboard' },
+            ...(isHistoricalMode
+                ? [
+                    { icon: ScrollText, label: 'Subir planilhas', description: 'Envio e processamento dos arquivos históricos', to: '/proreitor/historical-upload' },
+                    { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Arquivos processados e leituras consolidadas', to: '/proreitor/historical-data' },
+                ]
+                : [
+                    { icon: Database, label: 'Dados', description: 'Turmas, alunos, notas e frequência do Lyceum', to: '/proreitor/live-data' },
+                ]),
+            { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Análises baseadas na fonte ativa de dados', to: '/proreitor/analysis-center' },
+            { icon: MessageSquare, label: 'Chat IA', description: 'Assistente com acesso às bases acadêmicas do sistema', to: '/proreitor/ai-insights' },
+            { icon: Shield, label: 'Coordenadores', description: 'Pré-aprovação de contas e cursos coordenados', to: '/proreitor/coordinators' },
+            { icon: UserCircle2, label: 'Meu perfil', description: 'Dados administrativos da conta', to: '/proreitor/profile' },
+        ];
+    }
+
+    if (normalizedRole === 'professor') {
+        return [
+            { icon: Activity, label: 'Dashboard docente', description: 'Visão resumida do modo ativo', to: '/professor/dashboard' },
+            ...(isHistoricalMode
+                ? [
+                    { icon: ScrollText, label: 'Subir planilhas', description: 'Envio e processamento dos arquivos históricos', to: '/professor/historical-upload' },
+                    { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Arquivos processados e leituras consolidadas', to: '/professor/historical-data' },
+                ]
+                : [
+                    { icon: Database, label: 'Dados', description: 'Turmas, alunos, notas e frequência do Lyceum', to: '/professor/live-data' },
+                ]),
+            { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Análises baseadas na fonte ativa de dados', to: '/professor/analysis-center' },
+            { icon: MessageSquare, label: 'Chat IA', description: 'Assistente com contexto do Lyceum, planilhas ou ambos', to: '/professor/ai-insights' },
+            { icon: UserCircle2, label: 'Meu perfil', description: 'Credenciais, sincronização e dados da conta', to: '/professor/profile' },
+        ];
+    }
+
+    if (normalizedRole === 'coordinator') {
+        return [
+            { icon: Shield, label: 'Dashboard docente', description: 'Visão resumida do modo ativo', to: '/coordinator/dashboard' },
+            ...(isHistoricalMode
+                ? [
+                    { icon: ScrollText, label: 'Subir planilhas', description: 'Envio e processamento dos arquivos históricos', to: '/coordinator/historical-upload' },
+                    { icon: FileSpreadsheet, label: 'Histórico de planilhas', description: 'Arquivos processados e leituras consolidadas', to: '/coordinator/historical-data' },
+                ]
+                : [
+                    { icon: Database, label: 'Dados', description: 'Turmas do curso, alunos, notas e frequência', to: '/coordinator/live-data' },
+                ]),
+            { icon: BrainCircuit, label: 'Análises acadêmicas', description: 'Análises baseadas na fonte ativa de dados', to: '/coordinator/analysis-center' },
+            { icon: MessageSquare, label: 'Chat IA', description: 'Assistente com acesso às bases do curso e aos padrões históricos', to: '/coordinator/ai-insights' },
+            { icon: UserCircle2, label: 'Meu perfil', description: 'Credenciais e dados da conta', to: '/coordinator/profile' },
+        ];
+    }
+
+    return [
+        { icon: LayoutDashboard, label: 'Visão institucional', description: 'KPIs globais e mapa de risco', to: '/' },
+    ];
 }
 
 export function getRoleRoutePrefix(role) {
@@ -127,7 +132,6 @@ export function getRoleRoutePrefix(role) {
     if (normalizedRole === 'admin') return '/proreitor';
     if (normalizedRole === 'professor') return '/professor';
     if (normalizedRole === 'coordinator') return '/coordinator';
-    if (normalizedRole === 'student') return '/student';
     return '';
 }
 
@@ -144,9 +148,7 @@ export function isProfessorLikeRole(role) {
 }
 
 export function getInitials(name) {
-    if (!name) {
-        return 'NX';
-    }
+    if (!name) return 'NX';
 
     return name
         .trim()
@@ -156,8 +158,8 @@ export function getInitials(name) {
         .join('') || 'NX';
 }
 
-export function getPageMeta(pathname, role) {
-    const items = getNavItems(role);
+export function getPageMeta(pathname, role, dataMode = 'real') {
+    const items = getNavItems(role, dataMode);
     const sortedItems = [...items].sort((left, right) => right.to.length - left.to.length);
     const match = sortedItems.find((item) => (
         item.to === '/'
@@ -165,9 +167,7 @@ export function getPageMeta(pathname, role) {
             : pathname === item.to || pathname.startsWith(`${item.to}/`)
     ));
 
-    if (match) {
-        return match;
-    }
+    if (match) return match;
 
     return {
         label: 'Painel',

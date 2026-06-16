@@ -249,7 +249,7 @@ def _build_upload_class_groups(records_data: list[dict[str, Any]]) -> list[dict[
         if grade_average is not None:
             group["grade_values"].append(grade_average)
 
-        if (attendance is not None and attendance < 75) or (grade_average is not None and grade_average < 6):
+        if (attendance is not None and attendance < 70) or (grade_average is not None and grade_average < 6):
             group["attention_count"] += 1
         elif _extract_status_label(record.get("grades") or {}) and re.search(r"reprov|risco|alerta", _extract_status_label(record.get("grades") or {}) or "", re.I):
             group["attention_count"] += 1

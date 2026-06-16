@@ -15,100 +15,44 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=4)
 
 
-class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
-    full_name: str = Field(..., min_length=2, max_length=200)
-    email: str = Field(..., max_length=200)
-    password: str = Field(..., min_length=6)
-    role: str = Field(default='viewer')
-
-    @field_validator('email')
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return validate_email_value(value)
-
-
-class StudentRegisterRequest(BaseModel):
-    password: str = Field(..., min_length=6)
-    name: str = Field(..., min_length=2, max_length=200)
-    age: Optional[int] = Field(None, ge=14, le=100)
-    email: str = Field(..., max_length=200)
-    phone: Optional[str] = Field(None, max_length=20)
-    gender: Optional[str] = Field(None, max_length=20)
-    cpf: str = Field(..., min_length=11, max_length=14)
-    registration_number: str = Field(..., min_length=3, max_length=20)
-    course_name: Optional[str] = Field(None, max_length=200)
-    current_period: Optional[int] = Field(None, ge=1, le=12)
-    class_schedule: Optional[str] = Field(None)
-    is_working: Optional[bool] = Field(default=False)
-    work_schedule: Optional[str] = Field(None, max_length=100)
-    lyceum_password: Optional[str] = Field(None, max_length=200)
-
-    @field_validator('email')
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return validate_email_value(value)
-
-    @field_validator('phone')
-    @classmethod
-    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
-        return validate_phone_value(value)
-
-    @field_validator('cpf')
-    @classmethod
-    def validate_cpf(cls, value: str) -> str:
-        return validate_cpf_value(value)
-
-    @field_validator('registration_number')
-    @classmethod
-    def validate_registration_number(cls, value: str) -> str:
-        cleaned = str(value or '').strip()
-        if not cleaned:
-            raise ValueError('Informe a matricula.')
-        return cleaned
-
-
 class ProfessorRegisterRequest(BaseModel):
-    registration_code: str = Field(..., min_length=5, max_length=5, description='Codigo de matricula de 5 digitos')
-    password: str = Field(..., min_length=6)
-    name: str = Field(..., min_length=2, max_length=200)
-    email: str = Field(..., max_length=200)
-    phone: Optional[str] = Field(None, max_length=20)
-    academic_course_names: List[str] = Field(default=[])
-    course_ids: List[int] = Field(default=[])
+    lyceum_login: str = Field(..., min_length=3, max_length=100)
+    lyceum_password: str = Field(..., min_length=4, max_length=200)
 
-    @field_validator('registration_code')
+    @field_validator('lyceum_login')
     @classmethod
-    def validate_registration_code(cls, value: str) -> str:
-        digits = digits_only(value, 5) or ''
-        if len(digits) != 5:
-            raise ValueError('O codigo de matricula deve ter exatamente 5 digitos.')
-        return digits
-
-    @field_validator('email')
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return validate_email_value(value)
-
-    @field_validator('phone')
-    @classmethod
-    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
-        return validate_phone_value(value)
-
-    @field_validator('academic_course_names')
-    @classmethod
-    def validate_course_names(cls, values: List[str]) -> List[str]:
-        cleaned = []
-        seen = set()
-        for value in values or []:
-            name = str(value or '').strip()
-            key = name.casefold()
-            if name and key not in seen:
-                cleaned.append(name)
-                seen.add(key)
-        if not cleaned:
-            raise ValueError('Selecione ao menos um curso academico.')
+    def validate_lyceum_login(cls, value: str) -> str:
+        cleaned = str(value or "").strip()
+        if len(cleaned) < 3:
+            raise ValueError("Informe o login do Lyceum.")
         return cleaned
+
+
+class LyceumPasswordUpdateRequest(BaseModel):
+    lyceum_password: str = Field(..., min_length=4, max_length=200)
+    confirm_lyceum_password: str = Field(..., min_length=4, max_length=200)
+
+    @field_validator("confirm_lyceum_password")
+    @classmethod
+    def validate_matching_lyceum_passwords(cls, value: str, info) -> str:
+        original = info.data.get("lyceum_password")
+        if original is not None and str(value) != str(original):
+            raise ValueError("A confirmacao da senha do Lyceum nao confere.")
+        return value
+
+
+class SystemPasswordUpdateRequest(BaseModel):
+    current_password: str = Field(..., min_length=4, max_length=200)
+    new_password: str = Field(..., min_length=4, max_length=200)
+    confirm_new_password: str = Field(..., min_length=4, max_length=200)
+
+    @field_validator("confirm_new_password")
+    @classmethod
+    def validate_matching_system_passwords(cls, value: str, info) -> str:
+        new_password = info.data.get("new_password")
+        if new_password is not None and str(value) != str(new_password):
+            raise ValueError("A confirmacao da nova senha do NEXORA nao confere.")
+        return value
 
 
 class LoginResponse(BaseModel):

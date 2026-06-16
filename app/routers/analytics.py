@@ -10,9 +10,11 @@ from app.models.enrollment import Enrollment
 from app.models.course import Course
 from app.services.analytics_service import AnalyticsService
 from app.services.gemini_service import gemini_service
+from app.services.historical_analysis_service import HistoricalAnalysisService
+from app.services.live_data_service import LiveDataService
 from app.security.auth import get_current_user
 from app.security.audit import audit_logger
-from app.schemas.analytics import ChatRequest
+from app.schemas.analytics import AssistantChatRequest, ChatRequest
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
@@ -43,6 +45,92 @@ def get_professor_student_ids(db: Session, user_id: int) -> tuple[list[int] | No
         .all()
     ]
     return student_ids, professor_course_ids
+
+
+def _summarize_live_workspace(db: Session, current_user: User) -> dict:
+    service = LiveDataService(db)
+    workspace = service.build_analysis_workspace(current_user=current_user)
+    overview = workspace.get("overview", {})
+    top_at_risk = workspace.get("overview", {}).get("top_at_risk", [])
+    classes = workspace.get("analysis_data", {}).get("by_class", [])
+    return {
+        "label": "dados em tempo real do Lyceum",
+        "workspace": workspace,
+        "kpis": {
+            "total_students": overview.get("total_students", 0),
+            "average_gpa": overview.get("avg_grade", 0.0),
+            "average_attendance_rate": overview.get("avg_attendance", 0.0),
+            "at_risk_count": sum(
+                1 for row in top_at_risk
+                if row.get("risk_level") in {"high", "critical"}
+            ),
+        },
+        "risk_students": top_at_risk[:12],
+        "summary_lines": [
+            f"Turmas em tempo real consideradas: {overview.get('total_classes', 0)}",
+            f"Alunos em tempo real considerados: {overview.get('total_students', 0)}",
+            f"Media atual de notas: {overview.get('avg_grade', 0.0)}",
+            f"Frequencia media atual: {overview.get('avg_attendance', 0.0)}%",
+            f"Base historica usada como reforco de treinamento: {overview.get('historical_training_records', 0)} registros",
+        ] + [
+            f"Turma critica: {row.get('label')} | media={row.get('avg_grade')} | risco={row.get('risk_score')}"
+            for row in classes[:5]
+        ],
+    }
+
+
+def _summarize_historical_workspace(db: Session, current_user: User) -> dict:
+    service = HistoricalAnalysisService(db)
+    workspace = service.build_workspace(current_user=current_user)
+    overview = workspace.get("overview", {})
+    discipline_risk = workspace.get("analysis_data", {}).get("discipline_risk", [])
+    return {
+        "label": "planilhas historicas",
+        "workspace": workspace,
+        "kpis": {
+            "total_students": overview.get("total_students", 0),
+            "average_gpa": overview.get("avg_grade", 0.0),
+            "average_attendance_rate": overview.get("avg_attendance", 0.0),
+            "at_risk_count": len(overview.get("top_at_risk", []) or []),
+        },
+        "risk_students": (overview.get("top_at_risk", []) or [])[:12],
+        "summary_lines": [
+            f"Registros historicos analisados: {overview.get('total_records', 0)}",
+            f"Alunos historicos mapeados: {overview.get('total_students', 0)}",
+            f"Media historica de notas: {overview.get('avg_grade', 0.0)}",
+            f"Frequencia historica media: {overview.get('avg_attendance', 0.0)}%",
+            "Objetivo desta base: treinar previsoes, detectar padroes e reforcar leitura de risco do modo em tempo real.",
+        ] + [
+            f"Disciplina historicamente sensivel: {row.get('label')} | media={row.get('avg_grade')} | risco={row.get('risk_score')}"
+            for row in discipline_risk[:5]
+        ],
+    }
+
+
+def _merge_assistant_payload(source: str, live_payload: dict | None, historical_payload: dict | None) -> tuple[dict, list[dict], str]:
+    selected_payloads = []
+    if source in {"live", "both"} and live_payload:
+        selected_payloads.append(live_payload)
+    if source in {"historical", "both"} and historical_payload:
+        selected_payloads.append(historical_payload)
+
+    merged_kpis = {
+        "total_students": max((payload.get("kpis", {}).get("total_students", 0) for payload in selected_payloads), default=0),
+        "average_gpa": round(sum(payload.get("kpis", {}).get("average_gpa", 0.0) for payload in selected_payloads) / max(len(selected_payloads), 1), 2),
+        "average_attendance_rate": round(sum(payload.get("kpis", {}).get("average_attendance_rate", 0.0) for payload in selected_payloads) / max(len(selected_payloads), 1), 2),
+        "at_risk_count": sum(payload.get("kpis", {}).get("at_risk_count", 0) for payload in selected_payloads),
+    }
+    merged_risk_students = []
+    for payload in selected_payloads:
+        merged_risk_students.extend(payload.get("risk_students", []))
+
+    context_blocks = []
+    for payload in selected_payloads:
+        context_blocks.append(
+            f"BASE: {payload.get('label')}\n" + "\n".join(payload.get("summary_lines", []))
+        )
+
+    return merged_kpis, merged_risk_students[:18], "\n\n".join(context_blocks)
 
 
 @router.get('/overview')
@@ -201,6 +289,49 @@ async def chat_with_ai(
     return {'response': response_text}
 
 
+@router.post('/assistant-chat')
+async def chat_with_unified_assistant(
+    request: AssistantChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN):
+        raise HTTPException(status_code=403, detail='Acesso restrito aos perfis academicos com IA contextual')
+
+    source = str(request.source or 'both').lower()
+    if source not in {'live', 'historical', 'both'}:
+        raise HTTPException(status_code=400, detail='Fonte de conhecimento invalida')
+
+    live_payload = _summarize_live_workspace(db, current_user) if source in {'live', 'both'} else None
+    historical_payload = _summarize_historical_workspace(db, current_user) if source in {'historical', 'both'} else None
+    merged_kpis, merged_risk_students, context_block = _merge_assistant_payload(source, live_payload, historical_payload)
+
+    scoped_message = (
+        f"Perfil atual: {current_user.role.value.lower()}.\n"
+        f"Fonte de conhecimento escolhida: {source}.\n"
+        "Use os dados abaixo como contexto factual do sistema. "
+        "Quando a base historica estiver presente, trate-a como referencia de padroes, treinamento e comportamento "
+        "para apoiar previsoes e recomendacoes do modo em tempo real.\n\n"
+        f"{context_block}\n\n"
+        f"Pergunta do usuario: {request.message}"
+    )
+
+    response_text = await gemini_service.chat(
+        message=scoped_message,
+        kpis=merged_kpis,
+        risk_students=merged_risk_students,
+        history=request.history,
+    )
+    return {
+        'response': response_text,
+        'source': source,
+        'context': {
+            'live_available': live_payload is not None,
+            'historical_available': historical_payload is not None,
+        },
+    }
+
+
 @router.post('/proreitor/chat')
 async def chat_with_proreitor(
     request: ChatRequest,
@@ -223,41 +354,6 @@ async def chat_with_proreitor(
     )
     
     return {'response': response_text}
-
-
-@router.get('/me')
-def get_my_analytics(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail='Acesso exclusivo para alunos')
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail='Perfil de aluno nao encontrado')
-
-    audit_logger.log_access(current_user.username, '/api/analytics/me', 'GET')
-    service = AnalyticsService(db)
-    return service.get_student_overview(student.id)
-
-
-@router.get('/me/ai-insights')
-async def get_my_ai_insights(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail='Acesso exclusivo para alunos')
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail='Perfil de aluno nao encontrado')
-
-    audit_logger.log_access(current_user.username, '/api/analytics/me/ai-insights', 'GET')
-    service = AnalyticsService(db)
-    overview = service.get_student_overview(student.id)
-    return await gemini_service.analyze_student_overview(overview)
 
 
 @router.get('/proreitor/stats')

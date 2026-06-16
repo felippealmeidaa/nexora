@@ -47,6 +47,7 @@ def get_my_profile(
         user_name=current_user.full_name,
         user_email=current_user.email,
         academic_course_name=coordinator.academic_course_name,
+        course_names=coordinator.course_names or ([coordinator.academic_course_name] if coordinator.academic_course_name else []),
     )
 
 

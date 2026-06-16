@@ -2,14 +2,14 @@ import React from 'react';
 import clsx from 'clsx';
 
 const variantStyles = {
-    success: 'bg-success/10 text-success border-success/15',
-    warning: 'bg-warning/10 text-warning border-warning/15',
-    attention: 'bg-amber-100 text-amber-800 border-amber-200',
-    danger: 'bg-danger/10 text-danger border-danger/15',
-    info: 'bg-accent-blue/10 text-accent-blue border-accent-blue/15',
-    neutral: 'bg-slate-200/55 text-text-secondary border-slate-300/60',
-    purple: 'bg-accent-purple/10 text-accent-purple border-accent-purple/15',
-    cyan: 'bg-accent-cyan/12 text-accent-blue border-accent-cyan/20',
+    success: 'bg-success/10 text-success border-success/15 dark:bg-emerald-950/35 dark:text-emerald-300 dark:border-emerald-900/40',
+    warning: 'bg-warning/10 text-warning border-warning/15 dark:bg-amber-950/35 dark:text-amber-300 dark:border-amber-900/40',
+    attention: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/35 dark:text-amber-300 dark:border-amber-900/40',
+    danger: 'bg-danger/10 text-danger border-danger/15 dark:bg-red-950/35 dark:text-red-300 dark:border-red-900/40',
+    info: 'bg-accent-blue/10 text-accent-blue border-accent-blue/15 dark:bg-blue-950/35 dark:text-blue-300 dark:border-blue-900/40',
+    neutral: 'bg-slate-200/55 text-text-secondary border-slate-300/60 dark:bg-slate-800/40 dark:text-text-secondary dark:border-slate-700/50',
+    purple: 'bg-accent-purple/10 text-accent-purple border-accent-purple/15 dark:bg-purple-950/35 dark:text-purple-300 dark:border-purple-900/40',
+    cyan: 'bg-accent-cyan/12 text-accent-blue border-accent-cyan/20 dark:bg-cyan-950/35 dark:text-cyan-300 dark:border-cyan-900/40',
 };
 
 export function Badge({

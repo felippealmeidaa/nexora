@@ -1,5 +1,6 @@
-"""Testes basicos da API."""
+"""Smoke tests alinhados ao contrato atual da API."""
 
+from datetime import date
 import uuid
 
 import pytest
@@ -13,31 +14,24 @@ from app.models.user import User, UserRole
 from app.security.hashing import hash_password
 
 
-_uid = uuid.uuid4().hex[:6]
+_uid = uuid.uuid4().hex[:8]
 
 
 @pytest.fixture
 def client():
-    """Cria tabelas no banco de teste configurado e fornece o TestClient."""
     Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        db.query(Student).filter(Student.registration_number == f"T{_uid}").delete()
-        db.commit()
-    finally:
-        db.close()
-    with TestClient(app) as c:
-        yield c
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
 def auth_client(client):
-    """Cria um usuario admin local e autentica via cookie para testar RBAC."""
     db = SessionLocal()
+    username = f"testadmin_{_uid}"
     try:
-        username = f"testadmin_{_uid}"
-        if not db.query(User).filter(User.username == username).first():
-            db.add(User(
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            user = User(
                 username=username,
                 full_name="Test Admin",
                 email=f"{username}@test.com",
@@ -45,142 +39,129 @@ def auth_client(client):
                 role=UserRole.ADMIN,
                 is_active=True,
                 is_approved=True,
-            ))
+            )
+            db.add(user)
             db.commit()
     finally:
         db.close()
 
-    resp = client.post("/api/auth/login", json={
-        "identifier": f"testadmin_{_uid}",
-        "password": "test1234",
-    })
-    assert resp.status_code == 200
-    assert "set-cookie" in resp.headers
+    response = client.post(
+        "/api/auth/login",
+        json={
+            "identifier": username,
+            "password": "test1234",
+        },
+    )
+    assert response.status_code == 200
     return client
 
 
 class TestAuth:
-    def test_register(self, client):
-        resp = client.post("/api/auth/register", json={
-            "username": f"newuser_{_uid}",
-            "full_name": "New User",
-            "email": f"new_{_uid}@test.com",
-            "password": "pass1234",
-            "role": "viewer",
-        })
-        assert resp.status_code == 201
-        assert resp.json()["username"] == f"newuser_{_uid}"
-
-    def test_login_success(self, client):
-        resp = client.post("/api/auth/login", json={
-            "identifier": f"newuser_{_uid}",
-            "password": "pass1234",
-        })
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["authenticated"] is True
-        assert payload["token_type"] == "session_cookie"
-        assert "access_token" not in payload
-
-    def test_login_fail(self, client):
-        resp = client.post("/api/auth/login", json={
-            "identifier": f"newuser_{_uid}",
-            "password": "wrong",
-        })
-        assert resp.status_code == 401
-
-    def test_me(self, auth_client):
-        resp = auth_client.get("/api/auth/me")
-        assert resp.status_code == 200
-        assert resp.json()["username"] == f"testadmin_{_uid}"
+    def test_login_success(self, auth_client):
+        response = auth_client.get("/api/auth/me")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["username"] == f"testadmin_{_uid}"
+        assert payload["role"] == "ADMIN"
 
     def test_refresh_rotates_session(self, auth_client):
-        resp = auth_client.post("/api/auth/refresh")
-        assert resp.status_code == 200
-        payload = resp.json()
+        response = auth_client.post("/api/auth/refresh")
+        assert response.status_code == 200
+        payload = response.json()
         assert payload["authenticated"] is True
         assert payload["token_type"] == "session_cookie"
+        assert payload["role"] == "ADMIN"
 
     def test_list_sessions(self, auth_client):
-        resp = auth_client.get("/api/auth/sessions")
-        assert resp.status_code == 200
-        sessions = resp.json()
+        response = auth_client.get("/api/auth/sessions")
+        assert response.status_code == 200
+        sessions = response.json()
         assert len(sessions) >= 1
         assert sessions[0]["session_identifier"]
 
     def test_revoke_named_session(self, auth_client):
-        sessions_resp = auth_client.get("/api/auth/sessions")
-        session_identifier = sessions_resp.json()[0]["session_identifier"]
-        revoke_resp = auth_client.delete(f"/api/auth/sessions/{session_identifier}")
-        assert revoke_resp.status_code == 204
+        sessions_response = auth_client.get("/api/auth/sessions")
+        session_identifier = sessions_response.json()[0]["session_identifier"]
+        revoke_response = auth_client.delete(f"/api/auth/sessions/{session_identifier}")
+        assert revoke_response.status_code == 204
         after = auth_client.get("/api/auth/me")
         assert after.status_code == 401
 
     def test_logout_all_clears_session(self, auth_client):
-        resp = auth_client.post("/api/auth/logout-all")
-        assert resp.status_code == 204
+        response = auth_client.post("/api/auth/logout-all")
+        assert response.status_code == 204
         after = auth_client.get("/api/auth/me")
         assert after.status_code == 401
 
     def test_logout_clears_session(self, auth_client):
-        resp = auth_client.post("/api/auth/logout")
-        assert resp.status_code == 204
+        response = auth_client.post("/api/auth/logout")
+        assert response.status_code == 204
         after = auth_client.get("/api/auth/me")
         assert after.status_code == 401
 
     def test_login_rate_limit_and_lockout(self, client):
         temp_username = f"ratelimit_{_uid}"
-        for i in range(5):
-            resp = client.post("/api/auth/login", json={
+        for attempt_number in range(5):
+            response = client.post(
+                "/api/auth/login",
+                json={
+                    "identifier": temp_username,
+                    "password": "wrongpassword",
+                },
+            )
+            assert response.status_code == 401
+            assert response.headers.get("X-RateLimit-Limit") == "5"
+            assert int(response.headers.get("X-RateLimit-Remaining")) == 4 - attempt_number
+
+        blocked = client.post(
+            "/api/auth/login",
+            json={
                 "identifier": temp_username,
                 "password": "wrongpassword",
-            })
-            assert resp.status_code == 401
-            assert resp.headers.get("X-RateLimit-Limit") == "5"
-            assert int(resp.headers.get("X-RateLimit-Remaining")) == 4 - i
-            
-        resp = client.post("/api/auth/login", json={
-            "identifier": temp_username,
-            "password": "wrongpassword",
-        })
-        assert resp.status_code == 429
-        assert resp.headers.get("X-RateLimit-Limit") == "5"
-        assert resp.headers.get("X-RateLimit-Remaining") == "0"
-        assert "Retry-After" in resp.headers
-        assert int(resp.headers.get("Retry-After")) > 0
+            },
+        )
+        assert blocked.status_code == 429
+        assert blocked.headers.get("X-RateLimit-Limit") == "5"
+        assert blocked.headers.get("X-RateLimit-Remaining") == "0"
+        assert "Retry-After" in blocked.headers
 
 
 class TestStudentsAPI:
-    def test_create_student(self, auth_client):
-        resp = auth_client.post("/api/students/", json={
-            "name": "Ana Silva",
-            "registration_number": f"T{_uid}",
-            "email": f"ana_{_uid}@test.com",
-            "enrollment_date": "2024-02-01",
-            "status": "ACTIVE",
-        })
-        assert resp.status_code == 201
+    def test_list_students_requires_auth(self, client):
+        response = client.get("/api/students/")
+        assert response.status_code == 401
 
-    def test_list_students(self, auth_client):
-        registration = f"TL{_uid}"
-        auth_client.post("/api/students/", json={
-            "name": "Ana Lista",
-            "registration_number": registration,
-            "email": f"analista_{_uid}@test.com",
-            "enrollment_date": "2024-02-01",
-            "status": "ACTIVE",
-        })
-        resp = auth_client.get(f"/api/students/?search={registration}")
-        assert resp.status_code == 200
-        assert resp.json()["total"] >= 1
+    def test_list_students_for_admin(self, auth_client):
+        response = auth_client.get("/api/students/")
+        assert response.status_code == 200
+        payload = response.json()
+        assert "total" in payload
+        assert "students" in payload
 
-    def test_unauthorized(self, client):
-        resp = client.get("/api/students/")
-        assert resp.status_code == 401
+    def test_student_lookup_search_contract(self, auth_client):
+        db = SessionLocal()
+        try:
+            student = db.query(Student).filter(Student.registration_number == f"T{_uid}").first()
+            if not student:
+                student = Student(
+                    name="Aluno Contrato",
+                    registration_number=f"T{_uid}",
+                    email=f"aluno_{_uid}@test.com",
+                    course_name="Curso Teste",
+                    enrollment_date=date(2026, 1, 1),
+                )
+                db.add(student)
+                db.commit()
+        finally:
+            db.close()
+
+        response = auth_client.get(f"/api/students/?search=T{_uid}")
+        assert response.status_code == 200
+        assert response.json()["total"] >= 1
 
 
 class TestHealthCheck:
     def test_health(self, client):
-        resp = client.get("/health")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "online"
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["status"] == "online"

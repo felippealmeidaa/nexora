@@ -57,3 +57,9 @@ class ChatRequest(BaseModel):
     message: str
     history: Optional[List[Dict[str, Any]]] = None
     file_content: Optional[str] = None
+
+
+class AssistantChatRequest(BaseModel):
+    message: str
+    source: str = "both"
+    history: Optional[List[Dict[str, Any]]] = None

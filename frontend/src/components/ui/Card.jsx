@@ -50,19 +50,19 @@ export function CardHeader({
     action,
 }) {
     return (
-        <div className={clsx('mb-5 flex items-start justify-between gap-4', className)}>
-            <div className="flex items-start gap-3">
+        <div className={clsx('mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between', className)}>
+            <div className="flex min-w-0 items-start gap-3">
                 {Icon && (
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-gradient-soft text-accent-blue shadow-glow-sm">
                         <Icon className="h-5 w-5" />
                     </div>
                 )}
-                <div>
+                <div className="min-w-0">
                     <h3 className="text-base font-semibold text-text-primary">{title}</h3>
                     {subtitle && <p className="mt-1 text-sm text-text-secondary">{subtitle}</p>}
                 </div>
             </div>
-            {action}
+            {action ? <div className="sm:flex-shrink-0">{action}</div> : null}
         </div>
     );
 }

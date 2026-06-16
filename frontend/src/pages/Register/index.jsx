@@ -1,29 +1,22 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, BookOpen, GraduationCap, Shield } from 'lucide-react';
+import { ArrowLeft, BookOpen, Shield } from 'lucide-react';
 
 import { AuthCard, AuthLayout } from '@/components/auth/AuthLayout';
 
 const REGISTER_OPTIONS = [
     {
-        icon: GraduationCap,
-        title: 'Sou Aluno',
-        description: 'Acompanhe notas, frequência, horários e sincronização acadêmica.',
-        tone: 'border-accent-blue/20 bg-accent-blue/6 text-accent-blue',
-        route: '/register/student',
-    },
-    {
         icon: BookOpen,
         title: 'Sou Professor',
-        description: 'Gerencie turmas, riscos e análises por curso com base automática.',
+        description: 'Entre com seu login do Lyceum para validar a conta e iniciar o scraper docente.',
         tone: 'border-accent-purple/20 bg-accent-purple/8 text-accent-purple',
         route: '/register/professor',
     },
     {
         icon: Shield,
         title: 'Sou Coordenador',
-        description: 'Visualize o curso, acompanhe tendências e coordene intervenções.',
+        description: 'Use o código previamente aprovado pelo admin e defina sua senha de acesso.',
         tone: 'border-warning/20 bg-warning/8 text-warning',
         route: '/register/coordinator',
     },
@@ -36,7 +29,7 @@ export function RegisterSelect() {
         <AuthLayout>
             <AuthCard
                 title="Escolha seu perfil"
-                subtitle="Selecione o papel institucional para abrir o fluxo de cadastro correspondente."
+                subtitle="Selecione o tipo de conta que deseja criar no sistema."
                 maxWidth="max-w-lg"
             >
                 <div className="space-y-4">

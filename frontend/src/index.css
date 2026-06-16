@@ -37,6 +37,7 @@
     --nexora-border: #E2E8F0;
     --nexora-shadow: 0 24px 60px -34px rgba(15, 23, 42, 0.18);
     --nexora-brand-gradient: linear-gradient(135deg, #003B8F 0%, #6A1BFF 100%);
+    --bg-gradient-linear: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0) 32%);
 }
 
 .dark {
@@ -72,6 +73,7 @@
     --nexora-border: #1F2937;
     --nexora-shadow: 0 24px 60px -34px rgba(0, 0, 0, 0.6);
     --nexora-brand-gradient: linear-gradient(135deg, #1E40AF 0%, #7C3AED 100%);
+    --bg-gradient-linear: linear-gradient(180deg, rgba(8, 12, 23, 0.58), rgba(8, 12, 23, 0) 32%);
 }
 
 @layer base {
@@ -107,6 +109,7 @@
 
     html {
         scroll-behavior: smooth;
+        overflow-x: hidden;
     }
 
     body {
@@ -114,8 +117,9 @@
         background-image:
             radial-gradient(circle at top left, rgba(11, 87, 208, 0.09), transparent 26%),
             radial-gradient(circle at top right, rgba(106, 27, 255, 0.08), transparent 24%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0) 32%);
+            var(--bg-gradient-linear);
         min-height: 100vh;
+        overflow-x: hidden;
     }
 
     h1,
@@ -218,10 +222,14 @@
 
 /* ─── Dark Mode Specific Overrides & Resets ─── */
 .dark body {
+    background-color: #080C17;
     background-image:
-        radial-gradient(circle at top left, rgba(11, 87, 208, 0.16), transparent 30%),
-        radial-gradient(circle at top right, rgba(106, 27, 255, 0.14), transparent 28%),
-        linear-gradient(180deg, rgba(8, 12, 23, 0.96), rgba(8, 12, 23, 0.6) 32%) !important;
+        radial-gradient(circle at 15% 15%, rgba(11, 87, 208, 0.28) 0%, rgba(11, 87, 208, 0) 55%),
+        radial-gradient(circle at 85% 20%, rgba(124, 58, 237, 0.26) 0%, rgba(124, 58, 237, 0) 50%),
+        radial-gradient(circle at 50% 50%, rgba(106, 27, 255, 0.18) 0%, rgba(106, 27, 255, 0) 60%),
+        radial-gradient(circle at 80% 80%, rgba(219, 39, 119, 0.12) 0%, rgba(219, 39, 119, 0) 45%),
+        linear-gradient(180deg, rgba(8, 12, 23, 0.96), rgba(8, 12, 23, 0.7) 100%) !important;
+    background-attachment: fixed;
 }
 
 /* Transições globais de cor */
@@ -295,6 +303,7 @@ body, header, aside, main, div, button, nav, a, p, h1, h2, h3, h4, span, input, 
 .dark .bg-white\/72,
 .dark .bg-white\/70,
 .dark .bg-white\/60,
+.dark .bg-white\/50,
 .dark .bg-white\/40,
 .dark .bg-white\/30,
 .dark .bg-white\/20 {
@@ -425,6 +434,7 @@ body, header, aside, main, div, button, nav, a, p, h1, h2, h3, h4, span, input, 
 .dark .bg-bg-primary\/95 { background-color: rgba(8, 12, 23, 0.95) !important; }
 
 .dark .bg-bg-card\/70 { background-color: rgba(13, 19, 33, 0.7) !important; }
+.dark .bg-bg-card\/50 { background-color: rgba(13, 19, 33, 0.5) !important; }
 .dark .bg-bg-card\/92 { background-color: rgba(13, 19, 33, 0.92) !important; }
 
 @keyframes fadeIn {

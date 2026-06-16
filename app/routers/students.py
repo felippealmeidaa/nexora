@@ -1,446 +1,43 @@
 """
-Router CRUD de Alunos + endpoints self-service do aluno logado.
+Router de alunos usado pelas telas de analise e consulta institucional.
 """
 
-import asyncio
-import logging
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.database import get_db, SessionLocal
-from app.models.coordinator import Coordinator
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.attendance import Attendance, AttendanceStatus
+from app.models.enrollment import Enrollment
+from app.models.grade import Grade
+from app.models.scraped_data import (
+    ScrapedAttendance,
+    ScrapedGrade,
+    ScrapedSchedule,
+    ScrapedSubject,
+)
 from app.models.student import Student, StudentStatus
 from app.models.user import User, UserRole
-from app.models.scraped_data import ScrapedGrade, ScrapedAttendance, ScrapedSubject, ScrapedSchedule
-from app.models.grade import Grade
-from app.models.attendance import Attendance, AttendanceStatus
-from app.models.enrollment import Enrollment, EnrollmentStatus
-from app.models.course import Course
-from app.schemas.student import StudentCreate, StudentUpdate, StudentResponse, StudentListResponse
+from app.schemas.student import StudentListResponse, StudentResponse
+from app.security.access import (
+    can_user_access_student,
+    get_user_allowed_subject_keys,
+    scope_students_query,
+)
 from app.security.auth import get_current_user
-from app.security.access import can_user_access_student, get_user_allowed_subject_keys, scope_students_query
-from app.security.audit import audit_logger
-from app.security.rbac import require_coordinator_or_above
-from app.security.secrets import decrypt_secret, encrypt_secret
 from app.services.analytics_service import AnalyticsService
-from app.utils.attendance import normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
-from app.utils.subject_name import normalize_subject_key
 from app.services.gemini_service import gemini_service
-from pydantic import BaseModel
+from app.utils.attendance import normalize_attendance_records
+from app.utils.subject_name import normalize_subject_key
+
+router = APIRouter(prefix="/api/students", tags=["Alunos"])
+
 
 class DraftAlertRequest(BaseModel):
     channel: str = "email"
 
-logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/api/students", tags=["Alunos"])
-# ═══════════════════════════════════════════════
-# ENDPOINTS SELF-SERVICE DO ALUNO LOGADO
-# ═══════════════════════════════════════════════
-
-@router.get("/me", response_model=StudentResponse)
-def get_my_profile(
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Retorna dados do aluno logado e inicia sincronização automática em background."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-    if not can_user_access_student(db, current_user, student):
-        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
-
-    # Disparar sincronização em background automática na entrada/login do aluno
-    # apenas se ele tiver credenciais salvas e não estiver sincronizando atualmente.
-    # Adicionamos uma verificação de throttling para não sincronizar mais de uma vez a cada 5 minutos.
-    if (
-        student.sync_status != "syncing"
-        and student.cpf
-        and student.registration_number
-        and student.lyceum_password
-    ):
-        should_sync = False
-        if not student.last_sync_at:
-            should_sync = True
-        else:
-            time_diff = datetime.utcnow() - student.last_sync_at
-            if time_diff.total_seconds() > 300:  # 5 minutos
-                should_sync = True
-
-        if should_sync:
-            try:
-                custom_password = decrypt_secret(student.lyceum_password)
-                # Marcar como syncing no banco imediatamente
-                student.sync_status = "syncing"
-                student.sync_error = None
-                db.commit()
-
-                background_tasks.add_task(
-                    _run_sync_background,
-                    student.id,
-                    student.registration_number,
-                    student.cpf,
-                    custom_password,
-                )
-                logger.info(f"🔄 Sincronização automática em background disparada para o aluno {student.name} (ID: {student.id})")
-            except Exception as e:
-                logger.error(f"Erro ao disparar sincronização automática para o aluno {student.name}: {e}")
-
-    return student
-
-
-@router.patch("/me", response_model=StudentResponse)
-def update_my_profile(
-    data: StudentUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Atualiza dados do aluno logado."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    # Campos que o aluno não pode alterar via este endpoint self-service
-    restricted_fields = ["registration_number", "enrollment_date", "status", "user_id", "course_name", "current_period"]
-    
-    update_data = data.model_dump(exclude_unset=True)
-    for field in restricted_fields:
-        update_data.pop(field, None)
-
-    for field, value in update_data.items():
-        setattr(student, field, value)
-
-    # Se o e-mail mudou, atualizar também no User
-    if "email" in update_data:
-        current_user.email = update_data["email"]
-
-    db.commit()
-    db.refresh(student)
-    audit_logger.log_data_change(current_user.username, "Student", "SELF_UPDATE", student.id)
-    return student
-
-
-@router.get("/me/grades")
-def get_my_grades(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Retorna notas do aluno logado, separadas por disciplina."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    # Buscar notas extraídas via scraping
-    scraped = db.query(ScrapedGrade).filter(ScrapedGrade.student_id == student.id).all()
-
-    grades_by_subject = []
-    for g in scraped:
-        grades_by_subject.append({
-            "disciplina": g.disciplina,
-            "va1": g.va1,
-            "va2": g.va2,
-            "va3": g.va3,
-            "media": g.media,
-            "situacao": g.situacao,
-        })
-
-    return {
-        "student_id": student.id,
-        "student_name": student.name,
-        "total_disciplinas": len(grades_by_subject),
-        "grades": grades_by_subject,
-    }
-
-
-@router.get("/me/attendance")
-def get_my_attendance(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Retorna frequência do aluno logado, separada por disciplina."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    scraped = db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student.id).all()
-
-    normalized_attendance = normalize_attendance_records(scraped)
-
-    attendance_by_subject = []
-    for a, attendance_payload in zip(scraped, normalized_attendance):
-        attendance_by_subject.append({
-            "disciplina": a.disciplina,
-            "total_faltas": attendance_payload["total_faltas"],
-            "total_aulas": attendance_payload["total_aulas"],
-            "percentual_presenca": attendance_payload["percentual_presenca"],
-            "faltas_confirmadas": attendance_payload["faltas_confirmadas"],
-        })
-
-    return {
-        "student_id": student.id,
-        "student_name": student.name,
-        "total_disciplinas": len(attendance_by_subject),
-        "attendance": attendance_by_subject,
-    }
-
-
-@router.get("/me/subjects")
-def get_my_subjects(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Retorna disciplinas matriculadas do aluno logado."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    scraped = db.query(ScrapedSubject).filter(ScrapedSubject.student_id == student.id).all()
-
-    subjects = []
-    for s in scraped:
-        subjects.append({
-            "disciplina": s.disciplina,
-            "situacao": s.situacao,
-            "periodo": s.periodo,
-            "docente": s.docente,
-            "data_inicial": s.data_inicial,
-        })
-
-    return {
-        "student_id": student.id,
-        "student_name": student.name,
-        "total_disciplinas": len(subjects),
-        "subjects": subjects,
-    }
-
-
-@router.get("/me/schedule")
-def get_my_schedule(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Retorna horários do aluno logado."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    scraped = db.query(ScrapedSchedule).filter(ScrapedSchedule.student_id == student.id).all()
-
-    schedule = []
-    for s in scraped:
-        schedule.append({
-            "dia_semana": s.dia_semana,
-            "dia_nome": s.dia_nome,
-            "disciplina": s.disciplina,
-            "horario_inicio": s.horario_inicio,
-            "horario_fim": s.horario_fim,
-            "local": s.local,
-            "professor": s.professor,
-        })
-
-    # Ordenar por dia da semana e horário
-    schedule.sort(key=lambda x: (x["dia_semana"], x.get("horario_inicio", "")))
-
-    return {
-        "student_id": student.id,
-        "student_name": student.name,
-        "total_aulas": len(schedule),
-        "schedule": schedule,
-    }
-
-
-# ═══════════════════════════════════════════════
-# SINCRONIZAÇÃO LYCEUM
-# ═══════════════════════════════════════════════
-
-def _run_sync_background(student_id: int, registration_number: str, cpf: str, custom_password: str = None):
-    """
-    Executa o scraping do Lyceum em uma thread separada.
-    Tenta login com matrícula + senhas derivadas do CPF (fallback para senha personalizada).
-    Cria sua própria sessão de DB para evitar problemas de threading.
-    """
-    db = SessionLocal()
-    try:
-        from app.services.scraper_service import scraper_service
-
-        # Marcar como syncing
-        student = db.query(Student).filter(Student.id == student_id).first()
-        if not student:
-            return
-        student.sync_status = "syncing"
-        student.sync_error = None
-        db.commit()
-
-        # Executar scraping completo com tentativas de senha
-        result = scraper_service.run_full_scrape(
-            student_id, registration_number, cpf, custom_password, db
-        )
-
-        # Atualizar status
-        student = db.query(Student).filter(Student.id == student_id).first()
-        if result.get("success"):
-            student.sync_status = "done"
-            student.last_sync_at = datetime.utcnow()
-            student.sync_error = None
-            logger.info(f"✅ Sync completo para student_id={student_id}: "
-                        f"{result['grades_count']} notas, {result['attendance_count']} frequências, "
-                        f"{result['subjects_count']} disciplinas, {result['schedule_count']} horários")
-        else:
-            student.sync_status = "error"
-            student.sync_error = "; ".join(result.get("errors", ["Erro desconhecido"]))
-            logger.error(f"❌ Sync falhou para student_id={student_id}: {student.sync_error}")
-
-        db.commit()
-
-    except Exception as e:
-        logger.error(f"❌ Exceção no sync background: {e}")
-        try:
-            student = db.query(Student).filter(Student.id == student_id).first()
-            if student:
-                student.sync_status = "error"
-                student.sync_error = str(e)[:500]
-                db.commit()
-        except Exception:
-            pass
-    finally:
-        db.close()
-
-
-@router.post("/me/sync")
-def start_sync(
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Inicia sincronização dos dados do Lyceum para o aluno logado."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    # Verificar se já está sincronizando
-    if student.sync_status == "syncing":
-        raise HTTPException(status_code=409, detail="Sincronização já em andamento")
-
-    # Verificar se tem CPF (necessário para derivar a senha)
-    if not student.cpf:
-        raise HTTPException(
-            status_code=400,
-            detail="CPF é necessário para sincronizar. Atualize seu perfil.",
-        )
-
-    if not student.registration_number:
-        raise HTTPException(
-            status_code=400,
-            detail="Matrícula é necessária para sincronizar.",
-        )
-
-    if not student.lyceum_password:
-        raise HTTPException(
-            status_code=400,
-            detail="Salve a senha do portal antes de sincronizar.",
-        )
-
-    # Marcar como syncing imediatamente
-    student.sync_status = "syncing"
-    student.sync_error = None
-    db.commit()
-
-    # Executar em background — tenta CPF-based passwords + custom password se tiver
-    try:
-        custom_password = decrypt_secret(student.lyceum_password)
-    except ValueError as exc:
-        student.sync_status = "error"
-        student.sync_error = str(exc)
-        db.commit()
-        raise HTTPException(status_code=500, detail="Credenciais do Lyceum invalidas no armazenamento seguro.") from exc
-
-    background_tasks.add_task(
-        _run_sync_background,
-        student.id,
-        student.registration_number,
-        student.cpf,
-        custom_password,  # None se não tiver alterado
-    )
-
-    return {
-        "message": "Sincronização iniciada",
-        "sync_status": "syncing",
-    }
-
-
-@router.get("/me/sync-status")
-def get_sync_status(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Retorna o status da sincronização Lyceum do aluno logado."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    return {
-        "sync_status": student.sync_status,
-        "last_sync_at": student.last_sync_at.isoformat() if student.last_sync_at else None,
-        "sync_error": student.sync_error,
-        "has_lyceum_credentials": bool(student.lyceum_password),
-    }
-
-
-@router.post("/me/lyceum-credentials")
-def update_lyceum_credentials(
-    data: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Atualiza as credenciais do Lyceum do aluno (caso não tenha informado no cadastro)."""
-    if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Acesso restrito a alunos")
-
-    student = db.query(Student).filter(Student.user_id == current_user.id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Perfil de aluno não encontrado")
-
-    password = data.get("lyceum_password")
-    if not password:
-        raise HTTPException(status_code=400, detail="Senha do portal é obrigatória")
-
-    student.lyceum_password = encrypt_secret(password)
-    db.commit()
-
-    return {"message": "Credenciais do Lyceum atualizadas com sucesso"}
-
-
-# ═══════════════════════════════════════════════
-# ENDPOINTS CRUD (admin/coordenador/professor)
-# ═══════════════════════════════════════════════
 
 @router.get("/", response_model=StudentListResponse)
 def list_students(
@@ -451,9 +48,9 @@ def list_students(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Lista alunos com paginação e filtros opcionais."""
+    """Lista alunos visiveis para o usuario autenticado."""
     if current_user.role == UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Use os endpoints /me para acessar o proprio perfil")
+        raise HTTPException(status_code=403, detail="Acesso restrito ao uso institucional.")
 
     query = scope_students_query(db, current_user, db.query(Student))
 
@@ -461,9 +58,10 @@ def list_students(
         query = query.filter(Student.status == StudentStatus(status))
     if search:
         query = query.filter(
-            Student.name.ilike(f"%{search}%") |
-            Student.registration_number.ilike(f"%{search}%")
+            Student.name.ilike(f"%{search}%")
+            | Student.registration_number.ilike(f"%{search}%")
         )
+
     total = query.count()
     students = query.offset(skip).limit(limit).all()
     return StudentListResponse(total=total, students=students)
@@ -475,10 +73,10 @@ def get_student(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Retorna dados de um aluno específico."""
+    """Retorna os dados basicos de um aluno especifico."""
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
-        raise HTTPException(status_code=404, detail="Aluno não encontrado")
+        raise HTTPException(status_code=404, detail="Aluno nao encontrado")
     if not can_user_access_student(db, current_user, student):
         raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
     return student
@@ -490,14 +88,13 @@ def get_student_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Retorna detalhes completos de um aluno para professor, coordenador ou administrador."""
+    """Retorna o pacote completo de detalhes de um aluno para analise institucional."""
     if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN, UserRole.VIEWER):
         raise HTTPException(status_code=403, detail="Acesso restrito a professor, coordenacao e administracao")
 
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
-        raise HTTPException(status_code=404, detail="Aluno não encontrado")
-
+        raise HTTPException(status_code=404, detail="Aluno nao encontrado")
     if not can_user_access_student(db, current_user, student):
         raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
 
@@ -509,7 +106,6 @@ def get_student_detail(
         subject_key = normalize_subject_key(name)
         return bool(subject_key and subject_key in allowed_subject_keys)
 
-    # Notas scraped
     scraped_grades = [
         grade
         for grade in db.query(ScrapedGrade).filter(ScrapedGrade.student_id == student.id).all()
@@ -517,126 +113,131 @@ def get_student_detail(
     ]
     grades = [
         {
-            "disciplina": g.disciplina,
-            "va1": g.va1,
-            "va2": g.va2,
-            "va3": g.va3,
-            "media": g.media,
-            "situacao": g.situacao,
+            "disciplina": grade.disciplina,
+            "va1": grade.va1,
+            "va2": grade.va2,
+            "va3": grade.va3,
+            "media": grade.media,
+            "situacao": grade.situacao,
         }
-        for g in scraped_grades
+        for grade in scraped_grades
     ]
     if not grades:
         db_grades = db.query(Grade).filter(Grade.student_id == student.id).all()
-        grades_by_course = {}
-        for g in db_grades:
-            course_name = g.course.name if g.course else "Disciplina Desconhecida"
-            desc = (g.description or "").upper()
-            val = g.value
-            entry = grades_by_course.setdefault(course_name, {
-                "disciplina": course_name,
-                "va1": None,
-                "va1_projected": False,
-                "va2": None,
-                "va2_projected": False,
-                "va3": None,
-                "va3_projected": False,
-                "media": None,
-                "media_projected": False,
-                "situacao": "Cursando",
-                "is_projected": False,
-            })
-            is_proj = "PROJETADA" in desc or "✨" in desc
-            if "VA1" in desc or "P1" in desc:
-                entry["va1"] = val
-                entry["va1_projected"] = is_proj
-                if is_proj:
-                    entry["is_projected"] = True
-            elif "VA2" in desc or "P2" in desc:
-                entry["va2"] = val
-                entry["va2_projected"] = is_proj
-                if is_proj:
-                    entry["is_projected"] = True
-            elif "VA3" in desc or "P3" in desc:
-                entry["va3"] = val
-                entry["va3_projected"] = is_proj
-                if is_proj:
-                    entry["is_projected"] = True
-            elif "MEDIA" in desc or "MÉDIA" in desc or "FINAL" in desc:
-                entry["media"] = val
-                entry["media_projected"] = is_proj
-                if is_proj:
-                    entry["is_projected"] = True
+        grades_by_course: dict[str, dict] = {}
+        for grade in db_grades:
+            course_name = grade.course.name if grade.course else "Disciplina Desconhecida"
+            description = (grade.description or "").upper()
+            value = grade.value
+            entry = grades_by_course.setdefault(
+                course_name,
+                {
+                    "disciplina": course_name,
+                    "va1": None,
+                    "va1_projected": False,
+                    "va2": None,
+                    "va2_projected": False,
+                    "va3": None,
+                    "va3_projected": False,
+                    "media": None,
+                    "media_projected": False,
+                    "situacao": "Cursando",
+                    "is_projected": False,
+                },
+            )
+            is_projected = "PROJETADA" in description or "✨" in description
+            if "VA1" in description or "P1" in description:
+                entry["va1"] = value
+                entry["va1_projected"] = is_projected
+            elif "VA2" in description or "P2" in description:
+                entry["va2"] = value
+                entry["va2_projected"] = is_projected
+            elif "VA3" in description or "P3" in description:
+                entry["va3"] = value
+                entry["va3_projected"] = is_projected
+            elif "MEDIA" in description or "MÉDIA" in description or "FINAL" in description:
+                entry["media"] = value
+                entry["media_projected"] = is_projected
             else:
                 if entry["va1"] is None:
-                    entry["va1"] = val
-                    entry["va1_projected"] = is_proj
+                    entry["va1"] = value
+                    entry["va1_projected"] = is_projected
                 elif entry["va2"] is None:
-                    entry["va2"] = val
-                    entry["va2_projected"] = is_proj
+                    entry["va2"] = value
+                    entry["va2_projected"] = is_projected
                 elif entry["va3"] is None:
-                    entry["va3"] = val
-                    entry["va3_projected"] = is_proj
-                if is_proj:
-                    entry["is_projected"] = True
+                    entry["va3"] = value
+                    entry["va3_projected"] = is_projected
+            if is_projected:
+                entry["is_projected"] = True
+
         for entry in grades_by_course.values():
             if entry["media"] is None:
-                vals = [v for v in [entry["va1"], entry["va2"], entry["va3"]] if v is not None]
-                if vals:
-                    entry["media"] = round(sum(vals) / len(vals), 2)
-                    entry["media_projected"] = entry["va1_projected"] or entry["va2_projected"] or entry["va3_projected"]
+                values = [value for value in (entry["va1"], entry["va2"], entry["va3"]) if value is not None]
+                if values:
+                    entry["media"] = round(sum(values) / len(values), 2)
+                    entry["media_projected"] = (
+                        entry["va1_projected"] or entry["va2_projected"] or entry["va3_projected"]
+                    )
                     if entry["media_projected"]:
                         entry["is_projected"] = True
             if entry["media"] is not None:
-                if entry.get("is_projected"):
-                    entry["situacao"] = "Aprovação Provável" if entry["media"] >= 6.0 else "Reprovação Provável (Nota)"
+                if entry["is_projected"]:
+                    entry["situacao"] = "Aprovacao Provavel" if entry["media"] >= 6.0 else "Reprovacao Provavel (Nota)"
                 else:
                     entry["situacao"] = "Aprovado" if entry["media"] >= 6.0 else "Reprovado"
+
         grades = list(grades_by_course.values())
 
-    # Frequência scraped
-    scraped_att = [
-        attendance_record
-        for attendance_record in db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student.id).all()
-        if subject_is_visible(attendance_record.disciplina)
+    scraped_attendance = [
+        attendance_row
+        for attendance_row in db.query(ScrapedAttendance).filter(ScrapedAttendance.student_id == student.id).all()
+        if subject_is_visible(attendance_row.disciplina)
     ]
-    normalized_attendance = normalize_attendance_records(scraped_att)
-    attendance = []
-    for a, attendance_payload in zip(scraped_att, normalized_attendance):
-        attendance.append({
-            "disciplina": a.disciplina,
-            "total_faltas": attendance_payload["total_faltas"],
-            "total_aulas": attendance_payload["total_aulas"],
-            "percentual_presenca": attendance_payload["percentual_presenca"],
-            "faltas_confirmadas": attendance_payload["faltas_confirmadas"],
-        })
+    normalized_attendance = normalize_attendance_records(scraped_attendance)
+    attendance = [
+        {
+            "disciplina": row.disciplina,
+            "total_faltas": payload["total_faltas"],
+            "total_aulas": payload["total_aulas"],
+            "percentual_presenca": payload["percentual_presenca"],
+            "faltas_confirmadas": payload["faltas_confirmadas"],
+        }
+        for row, payload in zip(scraped_attendance, normalized_attendance)
+    ]
     if not attendance:
-        db_att = db.query(Attendance).filter(Attendance.student_id == student.id).all()
-        att_by_course = {}
-        for a in db_att:
-            course_name = a.course.name if a.course else "Disciplina Desconhecida"
-            entry = att_by_course.setdefault(course_name, {
-                "disciplina": course_name,
-                "total_faltas": 0,
-                "total_aulas": 0,
-                "presentes": 0,
-            })
+        db_attendance = db.query(Attendance).filter(Attendance.student_id == student.id).all()
+        attendance_by_course: dict[str, dict] = {}
+        for row in db_attendance:
+            course_name = row.course.name if row.course else "Disciplina Desconhecida"
+            entry = attendance_by_course.setdefault(
+                course_name,
+                {
+                    "disciplina": course_name,
+                    "total_faltas": 0,
+                    "total_aulas": 0,
+                    "presentes": 0,
+                },
+            )
             entry["total_aulas"] += 1
-            if a.status == AttendanceStatus.ABSENT:
+            if row.status == AttendanceStatus.ABSENT:
                 entry["total_faltas"] += 1
             else:
                 entry["presentes"] += 1
-        for entry in att_by_course.values():
+
+        for entry in attendance_by_course.values():
             pct = 100.0
             if entry["total_aulas"] > 0:
                 pct = round((entry["presentes"] / entry["total_aulas"]) * 100.0, 2)
-            attendance.append({
-                "disciplina": entry["disciplina"],
-                "total_faltas": entry["total_faltas"],
-                "total_aulas": entry["total_aulas"],
-                "percentual_presenca": pct,
-                "faltas_confirmadas": [],
-            })
+            attendance.append(
+                {
+                    "disciplina": entry["disciplina"],
+                    "total_faltas": entry["total_faltas"],
+                    "total_aulas": entry["total_aulas"],
+                    "percentual_presenca": pct,
+                    "faltas_confirmadas": [],
+                }
+            )
 
     scraped_subjects = [
         subject
@@ -645,31 +246,32 @@ def get_student_detail(
     ]
     subjects = [
         {
-            "disciplina": s.disciplina,
-            "situacao": s.situacao,
-            "periodo": s.periodo,
-            "docente": s.docente,
-            "data_inicial": s.data_inicial,
+            "disciplina": subject.disciplina,
+            "situacao": subject.situacao,
+            "periodo": subject.periodo,
+            "docente": subject.docente,
+            "data_inicial": subject.data_inicial,
         }
-        for s in scraped_subjects
+        for subject in scraped_subjects
     ]
     if not subjects:
         db_enrollments = db.query(Enrollment).filter(Enrollment.student_id == student.id).all()
-        for e in db_enrollments:
-            course_name = e.course.name if e.course else "Disciplina Desconhecida"
-            situacao = "Matriculado"
-            if grades:
-                for g in grades:
-                    if g["disciplina"] == course_name:
-                        situacao = g["situacao"]
-                        break
-            subjects.append({
-                "disciplina": course_name,
-                "situacao": situacao,
-                "periodo": student.current_period,
-                "docente": "Professor da Planilha",
-                "data_inicial": None,
-            })
+        for enrollment in db_enrollments:
+            course_name = enrollment.course.name if enrollment.course else "Disciplina Desconhecida"
+            situation = "Matriculado"
+            for grade in grades:
+                if grade["disciplina"] == course_name:
+                    situation = grade["situacao"]
+                    break
+            subjects.append(
+                {
+                    "disciplina": course_name,
+                    "situacao": situation,
+                    "periodo": student.current_period,
+                    "docente": "Professor da Planilha",
+                    "data_inicial": None,
+                }
+            )
 
     scraped_schedule = [
         schedule_item
@@ -678,24 +280,24 @@ def get_student_detail(
     ]
     schedule = [
         {
-            "dia_semana": s.dia_semana,
-            "dia_nome": s.dia_nome,
-            "disciplina": s.disciplina,
-            "horario_inicio": s.horario_inicio,
-            "horario_fim": s.horario_fim,
-            "local": s.local,
-            "professor": s.professor,
+            "dia_semana": row.dia_semana,
+            "dia_nome": row.dia_nome,
+            "disciplina": row.disciplina,
+            "horario_inicio": row.horario_inicio,
+            "horario_fim": row.horario_fim,
+            "local": row.local,
+            "professor": row.professor,
         }
-        for s in scraped_schedule
+        for row in scraped_schedule
     ]
     schedule.sort(key=lambda item: (item.get("dia_semana") or 99, item.get("horario_inicio") or ""))
 
     analytics_service = AnalyticsService(db)
     analytics = analytics_service.get_student_overview(student.id)
     analytics_history = [
-        entry
-        for entry in (analytics.get("history") or [])
-        if subject_is_visible(entry.get("disciplina"))
+        item
+        for item in (analytics.get("history") or [])
+        if subject_is_visible(item.get("disciplina"))
     ]
 
     visible_grade_values = [float(grade.media) for grade in scraped_grades if grade.media is not None]
@@ -705,7 +307,10 @@ def get_student_detail(
         if item.get("percentual_presenca") is not None
     ]
     average_gpa = round(sum(visible_grade_values) / len(visible_grade_values), 2) if visible_grade_values else 0.0
-    average_attendance = round(sum(visible_attendance_values) / len(visible_attendance_values), 2) if visible_attendance_values else 0.0
+    average_attendance = (
+        round(sum(visible_attendance_values) / len(visible_attendance_values), 2)
+        if visible_attendance_values else 0.0
+    )
     failures = sum(1 for grade in grades if str(grade.get("situacao") or "").strip().lower() == "reprovado")
     risk_score = max(0.0, min(1.0, (1 - average_gpa / 10) * 0.6 + (1 - average_attendance / 100) * 0.4))
 
@@ -722,6 +327,13 @@ def get_student_detail(
         },
     }
 
+    class_schedule = (
+        student.class_schedule.value
+        if student.class_schedule and hasattr(student.class_schedule, "value")
+        else student.class_schedule if isinstance(student.class_schedule, str) else None
+    )
+    status = student.status.value if student.status else None
+
     return {
         "student": {
             "id": student.id,
@@ -734,8 +346,8 @@ def get_student_detail(
             "registration_number": student.registration_number,
             "course_name": student.course_name,
             "current_period": student.current_period,
-            "class_schedule": student.class_schedule.value if student.class_schedule and hasattr(student.class_schedule, "value") else (student.class_schedule if isinstance(student.class_schedule, str) else None),
-            "status": student.status.value if student.status else None,
+            "class_schedule": class_schedule,
+            "status": status,
             "enrollment_date": student.enrollment_date.isoformat() if student.enrollment_date else None,
             "is_working": bool(student.is_working),
             "work_schedule": student.work_schedule,
@@ -756,32 +368,25 @@ async def get_student_insights(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Gera insights do estudante via Gemini (ou fallback) para o professor/coordenador."""
+    """Gera insights do estudante para professor, coordenador ou admin."""
     if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN, UserRole.VIEWER):
         raise HTTPException(status_code=403, detail="Acesso restrito a professor, coordenacao e administracao")
 
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
-        raise HTTPException(status_code=404, detail="Aluno não encontrado")
-
+        raise HTTPException(status_code=404, detail="Aluno nao encontrado")
     if not can_user_access_student(db, current_user, student):
         raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
 
     detail_data = get_student_detail(student_id=student_id, db=db, current_user=current_user)
-    
     analytics_data = detail_data.get("analytics") or {}
-    kpis = analytics_data.get("kpis") or {}
-    history = analytics_data.get("history") or []
-    recommendations = analytics_data.get("recommendations") or []
-    grades = detail_data.get("grades") or []
-
     insights = await gemini_service.analyze_student(
         student_name=student.name,
         course=student.course_name,
-        kpis=kpis,
-        history=history,
-        recommendations=recommendations,
-        current_grades=grades
+        kpis=analytics_data.get("kpis") or {},
+        history=analytics_data.get("history") or [],
+        recommendations=analytics_data.get("recommendations") or [],
+        current_grades=detail_data.get("grades") or [],
     )
     return {"insights": insights}
 
@@ -793,94 +398,23 @@ async def generate_draft_alert(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Gera um rascunho de mensagem preventiva para o aluno sob risco."""
+    """Gera um rascunho de mensagem preventiva para um aluno em risco."""
     if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDINATOR, UserRole.ADMIN):
         raise HTTPException(status_code=403, detail="Acesso restrito a professor, coordenacao e administracao")
 
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
-        raise HTTPException(status_code=404, detail="Aluno não encontrado")
-
+        raise HTTPException(status_code=404, detail="Aluno nao encontrado")
     if not can_user_access_student(db, current_user, student):
         raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
 
     detail_data = get_student_detail(student_id=student_id, db=db, current_user=current_user)
-    
     analytics_data = detail_data.get("analytics") or {}
-    kpis = analytics_data.get("kpis") or {}
-    grades = detail_data.get("grades") or []
-
     draft = await gemini_service.generate_student_draft_alert(
         student_name=student.name,
-        course_name=student.course_name or "Curso Acadêmico",
-        kpis=kpis,
-        current_grades=grades,
-        channel=payload.channel
+        course_name=student.course_name or "Curso Academico",
+        kpis=analytics_data.get("kpis") or {},
+        current_grades=detail_data.get("grades") or [],
+        channel=payload.channel,
     )
     return {"draft": draft}
-
-
-@router.post("/", response_model=StudentResponse, status_code=201)
-def create_student(
-    data: StudentCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_coordinator_or_above),
-):
-    """Cria um novo aluno."""
-    if db.query(Student).filter(Student.registration_number == data.registration_number).first():
-        raise HTTPException(status_code=400, detail="Matrícula já cadastrada")
-
-    if current_user.role == UserRole.COORDINATOR and data.course_name:
-        coordinator = db.query(Coordinator).filter(Coordinator.user_id == current_user.id).first()
-        if coordinator and coordinator.academic_course_name and data.course_name != coordinator.academic_course_name:
-            raise HTTPException(status_code=403, detail="Coordenacao nao pode criar aluno fora do proprio curso")
-
-    student = Student(**data.model_dump())
-    db.add(student)
-    db.commit()
-    db.refresh(student)
-    audit_logger.log_data_change(current_user.username, "Student", "CREATE", student.id)
-    return student
-
-
-@router.put("/{student_id}", response_model=StudentResponse)
-def update_student(
-    student_id: int,
-    data: StudentUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_coordinator_or_above),
-):
-    """Atualiza dados de um aluno."""
-    student = db.query(Student).filter(Student.id == student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Aluno não encontrado")
-
-    if current_user.role == UserRole.COORDINATOR and not can_user_access_student(db, current_user, student):
-        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
-
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(student, field, value)
-
-    db.commit()
-    db.refresh(student)
-    audit_logger.log_data_change(current_user.username, "Student", "UPDATE", student.id)
-    return student
-
-
-@router.delete("/{student_id}", status_code=204)
-def delete_student(
-    student_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_coordinator_or_above),
-):
-    """Remove um aluno."""
-    student = db.query(Student).filter(Student.id == student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Aluno não encontrado")
-
-    if current_user.role == UserRole.COORDINATOR and not can_user_access_student(db, current_user, student):
-        raise HTTPException(status_code=403, detail="Voce nao tem acesso a este aluno")
-
-    db.delete(student)
-    db.commit()
-    audit_logger.log_data_change(current_user.username, "Student", "DELETE", student_id)

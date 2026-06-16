@@ -4,8 +4,8 @@ import { Loader2 } from 'lucide-react';
 
 const variants = {
     primary: 'bg-brand-gradient text-white shadow-glow-sm hover:shadow-glow focus-visible:ring-accent-blue/25',
-    secondary: 'bg-white text-text-primary border border-border-subtle hover:border-border-hover hover:bg-bg-elevated focus-visible:ring-accent-blue/15',
-    outline: 'bg-transparent text-text-primary border border-border-subtle hover:border-accent-blue/30 hover:bg-accent-blue/5 focus-visible:ring-accent-blue/15',
+    secondary: 'bg-white dark:bg-bg-card text-text-primary border border-border-subtle dark:border-border-subtle hover:border-border-hover hover:bg-bg-elevated dark:hover:bg-bg-card-hover focus-visible:ring-accent-blue/15',
+    outline: 'bg-transparent text-text-primary border border-border-subtle dark:border-border-subtle hover:border-accent-blue/30 hover:bg-accent-blue/5 focus-visible:ring-accent-blue/15',
     ghost: 'bg-transparent text-text-secondary hover:text-text-primary hover:bg-bg-secondary focus-visible:ring-accent-blue/10',
     danger: 'bg-danger/8 text-danger border border-danger/15 hover:bg-danger/12 focus-visible:ring-danger/15',
 };

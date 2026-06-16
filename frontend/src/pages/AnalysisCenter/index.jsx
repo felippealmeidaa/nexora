@@ -39,6 +39,7 @@ import {
     Area,
     Pie,
     PieChart,
+    LabelList,
 } from 'recharts';
 
 import api from '@/services/api';
@@ -50,7 +51,6 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { MetricCard } from '@/components/ui/MetricCard';
-import { PageHeader } from '@/components/ui/PageHeader';
 import { StudentDetailModal } from '@/components/StudentDetailModal';
 
 function getRiskVariant(level) {
@@ -59,6 +59,15 @@ function getRiskVariant(level) {
     if (level === 'medium') return 'attention';
     return 'success';
 }
+
+const riskLabels = {
+    critical: 'Crítico',
+    high: 'Alto',
+    medium: 'Médio',
+    low: 'Baixo',
+};
+
+const EXCLUDED_MENU_ANALYSIS_IDS = new Set(['by_semester', 'student_trends', 'student_segments']);
 
 const GlobalCustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -89,11 +98,14 @@ const GlobalCustomTooltip = ({ active, payload, label }) => {
 
 function DisciplineRiskPanel({ rows }) {
     const safeRows = rows || [];
-    const topRows = safeRows.slice(0, 16);
-    const chartRows = topRows.slice(0, 10).map((item) => ({
+    const topRows = safeRows.slice(0, 25);
+    const chartRows = topRows.map((item) => ({
         disciplina: item.subject,
         risco: Math.round(Number(item.avg_risk || 0) * 100),
     }));
+
+    // Altura calculada: 42px por item, mínimo de 320px
+    const chartHeight = Math.max(320, chartRows.length * 42);
 
     const driverLabels = {
         nota: 'Nota',
@@ -101,7 +113,7 @@ function DisciplineRiskPanel({ rows }) {
         presenca: 'Presença',
         queda_presenca: 'Queda de presença',
         atividade: 'Atividade',
-        oscilacao: 'Oscilacao',
+        oscilacao: 'Oscilação',
         aprovacao: 'Reprovação',
         historico: 'Histórico',
         carga: 'Carga',
@@ -119,9 +131,9 @@ function DisciplineRiskPanel({ rows }) {
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
-                        { label: 'Risco médio', description: 'Média do risco estimado nos registros da disciplina (maior = pior).' },
-                        { label: 'Críticos/altos', description: 'Quantidade de registros com risco alto/critico na disciplina.' },
-                        { label: 'Principais causas', description: 'Fatores que mais puxaram o risco para cima nessa disciplina.' },
+                        { label: 'Risco médio', description: 'Nota de atenção para a matéria (quanto mais perto de 100%, maior é a chance de os alunos terem problemas de notas ou faltas).' },
+                        { label: 'Alunos em risco', description: 'Total de alunos que precisam de ajuda urgente nesta matéria.' },
+                        { label: 'Principais motivos', description: 'O que mais está atrapalhando o rendimento dos alunos (ex: notas baixas ou muitas faltas).' },
                     ]}
                 />
 
@@ -131,22 +143,40 @@ function DisciplineRiskPanel({ rows }) {
                     </div>
                 ) : (
                     <>
-                        <div className="h-64">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartRows} layout="vertical" margin={{ left: 22 }}>
-                                    <defs>
-                                        <linearGradient id="gradientDiscipline" x1="0" y1="0" x2="1" y2="0">
-                                            <stop offset="0%" stopColor="#8F5BFF" stopOpacity={0.9} />
-                                            <stop offset="100%" stopColor="#6A1BFF" stopOpacity={0.6} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-                                    <XAxis type="number" tickLine={false} axisLine={false} fontSize={12} />
-                                    <YAxis type="category" dataKey="disciplina" tickLine={false} axisLine={false} fontSize={12} width={160} />
-                                    <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
-                                    <Bar dataKey="risco" fill="url(#gradientDiscipline)" radius={[10, 10, 10, 10]} name="Risco médio (%)" />
-                                </BarChart>
-                            </ResponsiveContainer>
+                        <div className="max-h-[420px] overflow-y-auto pr-1.5 rounded-[22px] border border-border-subtle p-5 bg-slate-50/20 shadow-inner">
+                            <div style={{ height: `${chartHeight}px`, minWidth: '400px' }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={chartRows} layout="vertical" margin={{ left: 10, right: 35, top: 10, bottom: 10 }}>
+                                        <defs>
+                                            <linearGradient id="gradientCritico" x1="0" y1="0" x2="1" y2="0">
+                                                <stop offset="0%" stopColor="#EF4444" stopOpacity={0.9} />
+                                                <stop offset="100%" stopColor="#DC2626" stopOpacity={0.7} />
+                                            </linearGradient>
+                                            <linearGradient id="gradientAlto" x1="0" y1="0" x2="1" y2="0">
+                                                <stop offset="0%" stopColor="#F59E0B" stopOpacity={0.9} />
+                                                <stop offset="100%" stopColor="#D97706" stopOpacity={0.7} />
+                                            </linearGradient>
+                                            <linearGradient id="gradientMedio" x1="0" y1="0" x2="1" y2="0">
+                                                <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.9} />
+                                                <stop offset="100%" stopColor="#1D4ED8" stopOpacity={0.7} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} vertical={true} />
+                                        <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} stroke="#64748B" domain={[0, 100]} />
+                                        <YAxis type="category" dataKey="disciplina" tickLine={false} axisLine={false} fontSize={12} width={220} stroke="#475569" />
+                                        <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
+                                        <Bar dataKey="risco" radius={[0, 8, 8, 0]} barSize={20} name="Risco médio (%)">
+                                            {chartRows.map((entry, index) => {
+                                                let fillUrl = 'url(#gradientMedio)';
+                                                if (entry.risco >= 75) fillUrl = 'url(#gradientCritico)';
+                                                else if (entry.risco >= 58) fillUrl = 'url(#gradientAlto)';
+                                                return <Cell key={`cell-${index}`} fill={fillUrl} />;
+                                            })}
+                                            <LabelList dataKey="risco" position="right" formatter={(v) => ` ${v}%`} style={{ fill: '#475569', fontSize: 11, fontWeight: '700' }} />
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
                         </div>
 
                         <div className="overflow-x-auto">
@@ -167,27 +197,81 @@ function DisciplineRiskPanel({ rows }) {
                                             <td className="rounded-l-[20px] px-4 py-4 font-semibold text-text-primary">{item.subject}</td>
                                             <td className="px-4 py-4">
                                                 <div className="flex flex-col gap-1 items-start">
-                                                    <Badge variant={getRiskVariant(item.risk_level)}>{formatRisk(item.avg_risk)}</Badge>
-                                                    {item.real_avg_risk !== undefined && (
-                                                        <span className="text-[10px] text-text-tertiary font-medium">Real: {formatRisk(item.real_avg_risk)}</span>
+                                                    {item.real_avg_risk !== undefined ? (
+                                                        <>
+                                                            <Badge variant={getRiskVariant(item.real_avg_risk >= 0.75 ? 'critical' : item.real_avg_risk >= 0.58 ? 'high' : 'medium')}>
+                                                                Real: {formatRisk(item.real_avg_risk)}
+                                                            </Badge>
+                                                            <span className="text-[10px] text-text-tertiary">Projeção: {formatRisk(item.avg_risk)}</span>
+                                                        </>
+                                                    ) : (
+                                                        <Badge variant={getRiskVariant(item.risk_level)}>{formatRisk(item.avg_risk)}</Badge>
                                                     )}
                                                 </div>
                                             </td>
                                             <td className="px-4 py-4 text-text-secondary">{item.critical_students}</td>
                                             <td className="px-4 py-4 font-semibold text-text-primary">
-                                                <div className="font-semibold text-text-primary">{Number(item.avg_grade || 0).toFixed(2)}</div>
-                                                {item.real_avg_grade !== undefined && (
-                                                    <div className="text-[11px] text-text-tertiary font-normal">Real: {Number(item.real_avg_grade).toFixed(2)}</div>
+                                                {item.real_avg_grade !== undefined ? (
+                                                    <>
+                                                        <div className="font-semibold text-text-primary">Real: {Number(item.real_avg_grade).toFixed(2)}</div>
+                                                        <div className="text-[11px] text-text-tertiary font-normal">Projeção: {Number(item.avg_grade || 0).toFixed(2)}</div>
+                                                    </>
+                                                ) : (
+                                                    <div className="font-semibold text-text-primary">{Number(item.avg_grade || 0).toFixed(2)}</div>
                                                 )}
                                             </td>
                                             <td className="px-4 py-4">
-                                                <div className="text-text-primary font-semibold">{formatPercent(item.avg_attendance)}</div>
-                                                {item.real_avg_attendance !== undefined && (
-                                                    <div className="text-[11px] text-text-tertiary font-normal">Real: {formatPercent(item.real_avg_attendance)}</div>
+                                                {item.real_avg_attendance !== undefined ? (
+                                                    <>
+                                                        <div className="text-text-primary font-semibold">Real: {formatPercent(item.real_avg_attendance)}</div>
+                                                        <div className="text-[11px] text-text-tertiary font-normal">Projeção: {formatPercent(item.avg_attendance)}</div>
+                                                    </>
+                                                ) : (
+                                                    <div className="text-text-primary font-semibold">{formatPercent(item.avg_attendance)}</div>
                                                 )}
                                             </td>
                                             <td className="rounded-r-[20px] px-4 py-4 text-text-secondary">
-                                                {(item.top_drivers || []).map((key) => driverLabels[key] || key).join(' • ') || '-'}
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                    {(() => {
+                                                        const reprovacaoDrivers = ['nota', 'presenca', 'queda_presenca', 'aprovacao'];
+                                                        const drivers = item.top_drivers || [];
+                                                        const counts = item.driver_student_counts || {};
+
+                                                        // Filtra apenas os drivers que de fato possuem pelo menos 1 aluno afetado
+                                                        const activeDrivers = drivers.filter(
+                                                            key => (counts[key] || 0) > 0
+                                                        );
+
+                                                        // Verifica se há pelo menos um driver de reprovação relevante com alunos afetados
+                                                        const temRiscoReal = activeDrivers.some(
+                                                            k => reprovacaoDrivers.includes(k)
+                                                        );
+
+                                                        if (!temRiscoReal || activeDrivers.length === 0) {
+                                                            return (
+                                                                <span className="text-xs text-emerald-600 font-medium italic">
+                                                                    Nenhum aluno com risco de reprovação
+                                                                </span>
+                                                            );
+                                                        }
+
+                                                        return activeDrivers.map((key, index) => {
+                                                            const label = driverLabels[key] || key;
+                                                            const count = counts[key] || 0;
+                                                            const tooltipContent = `Provavelmente ${count} ${count === 1 ? 'aluno está' : 'alunos estão'} sendo afetados por: ${label.toLowerCase()}.`;
+                                                            return (
+                                                                <React.Fragment key={key}>
+                                                                    <UiTooltip content={tooltipContent} align="center">
+                                                                        <span className="cursor-help hover:text-text-primary hover:underline transition-all">
+                                                                            {label}
+                                                                        </span>
+                                                                    </UiTooltip>
+                                                                    {index < activeDrivers.length - 1 && <span className="text-text-tertiary select-none"> • </span>}
+                                                                </React.Fragment>
+                                                            );
+                                                        });
+                                                    })()}
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -218,8 +302,8 @@ function StudentSegmentsPanel({ rows }) {
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
-                        { label: 'Segmento', description: 'Grupo com características parecidas (nota/presença/atividade/risco).' },
-                        { label: 'Alunos', description: 'Quantidade de alunos nesse perfil.' },
+                        { label: 'Grupo de alunos', description: 'Alunos reunidos de acordo com comportamento parecido (como notas, faltas e entrega de tarefas).' },
+                        { label: 'Quantidade', description: 'Total de alunos que fazem parte desse mesmo grupo.' },
                     ]}
                 />
 
@@ -229,20 +313,23 @@ function StudentSegmentsPanel({ rows }) {
                     </div>
                 ) : (
                     <>
-                        <div className="h-64">
+                        <div className="h-80">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartRows}>
+                                <BarChart data={chartRows} margin={{ top: 25, right: 30, left: 10, bottom: 20 }}>
                                     <defs>
                                         <linearGradient id="gradientSegments" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#8F5BFF" stopOpacity={0.9} />
-                                            <stop offset="100%" stopColor="#6A1BFF" stopOpacity={0.65} />
+                                            <stop offset="0%" stopColor="#6366f1" stopOpacity={1.0} />
+                                            <stop offset="50%" stopColor="#8b5cf6" stopOpacity={0.9} />
+                                            <stop offset="100%" stopColor="#d946ef" stopOpacity={0.7} />
                                         </linearGradient>
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                                    <XAxis dataKey="segmento" tickLine={false} axisLine={false} fontSize={12} />
-                                    <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} strokeOpacity={0.6} />
+                                    <XAxis dataKey="segmento" tickLine={false} axisLine={false} fontSize={11} stroke="#64748B" height={40} tickFormatter={(val) => val.length > 20 ? `${val.slice(0, 18)}...` : val} />
+                                    <YAxis tickLine={false} axisLine={false} fontSize={11} width={36} stroke="#64748B" />
                                     <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
-                                    <Bar dataKey="alunos" fill="url(#gradientSegments)" radius={[10, 10, 0, 0]} name="Alunos" />
+                                    <Bar dataKey="alunos" fill="url(#gradientSegments)" radius={[12, 12, 0, 0]} maxBarSize={48} name="Alunos">
+                                        <LabelList dataKey="alunos" position="top" formatter={(val) => `${val}`} style={{ fontSize: 11, fontWeight: 'bold', fill: '#475569' }} />
+                                    </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -279,28 +366,157 @@ function StudentSegmentsPanel({ rows }) {
 }
 
 function RiskProjectionPanel({ rows }) {
+    const [days, setDays] = useState(30);
     const safeRows = rows || [];
-    const topRows = safeRows.slice(0, 20);
-    const chartRows = topRows.map((item) => ({
-        aluno: item.student_name?.split(' ')[0] || item.student_name,
-        atual: Math.round(Number(item.current_risk || 0) * 100),
-        mitigado: Math.round(Number(item.mitigated_risk || 0) * 100),
-    }));
+
+    // Ordenar os estudantes por risco atual decrescente e pegar os 6 primeiros
+    const top6Students = useMemo(() => {
+        const sorted = [...safeRows].sort((a, b) => b.current_risk - a.current_risk);
+        return sorted.slice(0, 6);
+    }, [safeRows]);
+
+    // Lógica de mitigação dinâmica baseada no número de dias
+    const computedStudents = useMemo(() => {
+        return top6Students.map((item) => {
+            const currentRisk = Number(item.current_risk || 0);
+            const baseMitigatedRisk = Number(item.mitigated_risk || 0);
+            const totalDrop = currentRisk - baseMitigatedRisk;
+
+            let simulatedMitigatedRisk = baseMitigatedRisk;
+            if (days === 7) {
+                simulatedMitigatedRisk = currentRisk - totalDrop * 0.25;
+            } else if (days === 15) {
+                simulatedMitigatedRisk = currentRisk - totalDrop * 0.60;
+            }
+
+            // Garante que o risco mitigado fique entre 0 e o risco atual
+            simulatedMitigatedRisk = Math.min(currentRisk, Math.max(0, simulatedMitigatedRisk));
+
+            const pctAtual = Math.round(currentRisk * 100);
+            const pctMitigado = Math.round(simulatedMitigatedRisk * 100);
+            const dropPct = Math.max(0, pctAtual - pctMitigado);
+
+            return {
+                ...item,
+                simulatedMitigatedRisk,
+                pctAtual,
+                pctMitigado,
+                dropPct,
+            };
+        });
+    }, [top6Students, days]);
+
+    // Dados para o gráfico Recharts reativo
+    const chartRows = useMemo(() => {
+        return computedStudents.map((item) => ({
+            aluno: item.student_name?.split(' ')[0] || item.student_name,
+            atual: item.pctAtual,
+            mitigado: item.pctMitigado,
+        }));
+    }, [computedStudents]);
+
+    // Função de recomendação personalizada em português com variabilidade dinâmica
+    function getPersonalizedAction(action, studentName, recordId) {
+        const firstName = studentName?.split(' ')[0] || studentName;
+        const actionClean = String(action || '').trim();
+        
+        // Semente determinística baseada na soma dos caracteres do ID do registro ou nome
+        const hashSeed = String(recordId || studentName).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const seed = hashSeed % 3;
+
+        if (actionClean.includes("Presença")) {
+            const options = [
+                `Conversar com ${firstName} para entender por que está faltando e ajudar a organizar sua frequência.`,
+                `Mandar uma mensagem rápida para ${firstName} perguntando sobre as faltas e combinando um plano para voltar às aulas.`,
+                `Ligar ou mandar e-mail para ${firstName} de forma amigável para entender as ausências recentes.`
+            ];
+            return options[seed];
+        }
+        if (actionClean.includes("Atividades")) {
+            const options = [
+                `Dar um prazo a mais para ${firstName} entregar os trabalhos atrasados e se colocar à disposição para tirar dúvidas.`,
+                `Marcar um bate-papo rápido com ${firstName} para ajudar a resolver os trabalhos que estão acumulados.`,
+                `Oferecer exercícios mais simples para ${firstName} treinar o assunto e conseguir entregar no prazo.`
+            ];
+            return options[seed];
+        }
+        if (actionClean.includes("Notas")) {
+            const options = [
+                `Convidar ${firstName} para as aulas de reforço e dar exercícios extras para praticar o assunto da matéria.`,
+                `Fazer uma revisão rápida dos pontos difíceis com ${firstName} e dar uma atividade extra simples para recuperar a nota.`,
+                `Ajudar ${firstName} a montar um roteiro de estudos simples focado nos assuntos que cairão na próxima prova.`
+            ];
+            return options[seed];
+        }
+        if (actionClean.includes("Acompanhamento")) {
+            const options = [
+                `Dar uma olhada nas notas e presença de ${firstName} toda semana no sistema para ver se precisa de ajuda.`,
+                `Conversar rapidamente com ${firstName} a cada 15 dias para saber como está se saindo nos estudos.`,
+                `Perguntar aos outros professores como ${firstName} está indo nas aulas para dar um suporte preventivo.`
+            ];
+            return options[seed];
+        }
+
+        const optionsGeneral = [
+            `Montar um planinho de estudos bem simples para ajudar ${firstName} nas matérias em que tem mais dificuldade.`,
+            `Chamar ${firstName} para conversar e ajudar a organizar sua rotina semanal de estudos e deveres.`,
+            `Pedir para um colega da turma ou monitor acompanhar ${firstName} nas tarefas mais difíceis toda semana.`
+        ];
+        return optionsGeneral[seed];
+    }
+
+    // Função para pegar a cor do avatar baseado no risco atual
+    function getRiskColor(risk) {
+        if (risk >= 0.75) return 'bg-red-100 text-red-700 border-red-200';
+        if (risk >= 0.58) return 'bg-amber-100 text-amber-700 border-amber-200';
+        return 'bg-blue-100 text-blue-700 border-blue-200';
+    }
+
+    // Iniciais do Aluno para o avatar
+    function getInitials(name) {
+        const parts = String(name || '').split(' ');
+        if (parts.length >= 2) {
+            return (parts[0][0] + parts[1][0]).toUpperCase();
+        }
+        return (parts[0]?.[0] || 'A').toUpperCase();
+    }
 
     return (
         <Card>
             <CardHeader
-                title="Impacto de ações preventivas"
-                subtitle="Veja como a ação certa diminui o risco de evasão do aluno na prática."
+                title="Projeção e Mitigação de Risco Preditivo"
+                subtitle="Monitore os 6 alunos em maior situação de risco e simule ações pedagógicas em diferentes intervalos de tempo."
                 icon={TrendingUp}
             />
-            <div className="space-y-4">
-                <MetricsHelp
-                    items={[
-                        { label: 'Atual', description: 'Risco atual estimado.' },
-                        { label: 'Mitigado', description: 'Risco estimado caso a ação recomendada seja realizada.' },
-                    ]}
-                />
+            <div className="space-y-6">
+                
+                {/* Seletor de dias para simulação com visual Glassmorphic */}
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-5 rounded-[22px] border border-border-subtle bg-bg-secondary/40 backdrop-blur-sm shadow-inner">
+                    <div>
+                        <h4 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                            <CalendarRange className="h-4 w-4 text-accent-blue" />
+                            Tempo de Intervenção Pedagógica
+                        </h4>
+                        <p className="text-xs text-text-secondary mt-1">Ajuste o período para projetar a redução do risco caso a intervenção seja iniciada.</p>
+                    </div>
+                    <div className="flex bg-slate-100/80 p-1.5 rounded-[16px] border border-slate-200/80 w-fit">
+                        {[7, 15, 30].map((d) => (
+                            <button
+                                key={d}
+                                type="button"
+                                onClick={() => setDays(d)}
+                                className={[
+                                    "px-4 py-2 text-xs font-bold rounded-xl transition-all duration-200 min-w-[70px]",
+                                    days === d
+                                        ? "bg-white text-accent-blue shadow-sm scale-105"
+                                        : "text-text-secondary hover:text-text-primary hover:bg-white/30"
+                                ].join(" ")}
+                            >
+                                {d} dias
+                            </button>
+                        ))}
+                    </div>
+                </div>
 
                 {!safeRows.length ? (
                     <div className="rounded-[22px] border border-dashed border-border-subtle bg-bg-secondary/40 px-6 py-10 text-center text-sm text-text-secondary">
@@ -308,56 +524,106 @@ function RiskProjectionPanel({ rows }) {
                     </div>
                 ) : (
                     <>
-                        <div className="h-64">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartRows}>
-                                    <defs>
-                                        <linearGradient id="gradientAtual" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.9} />
-                                            <stop offset="100%" stopColor="#1D4ED8" stopOpacity={0.65} />
-                                        </linearGradient>
-                                        <linearGradient id="gradientMitigado" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#10B981" stopOpacity={0.9} />
-                                            <stop offset="100%" stopColor="#059669" stopOpacity={0.65} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                                    <XAxis dataKey="aluno" tickLine={false} axisLine={false} fontSize={12} />
-                                    <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} />
-                                    <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
-                                    <Legend />
-                                    <Bar dataKey="atual" fill="url(#gradientAtual)" radius={[10, 10, 0, 0]} name="Risco Atual (%)" />
-                                    <Bar dataKey="mitigado" fill="url(#gradientMitigado)" radius={[10, 10, 0, 0]} name="Risco Mitigado (%)" />
-                                </BarChart>
-                            </ResponsiveContainer>
+                        {/* Gráfico reativo com barras side-by-side de alta definição */}
+                        <div className="rounded-[22px] border border-border-subtle p-5 bg-white shadow-glow-sm">
+                            <h4 className="text-sm font-semibold text-text-primary mb-4">Gráfico Comparativo de Risco (Top 6 Críticos)</h4>
+                            <div className="h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={chartRows} margin={{ left: -10, right: 10, top: 10, bottom: 5 }}>
+                                        <defs>
+                                            <linearGradient id="gradientProjAtual" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#EF4444" stopOpacity={0.9} />
+                                                <stop offset="100%" stopColor="#DC2626" stopOpacity={0.65} />
+                                            </linearGradient>
+                                            <linearGradient id="gradientProjMitigado" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#10B981" stopOpacity={0.9} />
+                                                <stop offset="100%" stopColor="#059669" stopOpacity={0.65} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                                        <XAxis dataKey="aluno" tickLine={false} axisLine={false} fontSize={12} stroke="#64748B" />
+                                        <YAxis tickLine={false} axisLine={false} fontSize={12} width={36} domain={[0, 100]} stroke="#64748B" />
+                                        <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
+                                        <Legend />
+                                        <Bar dataKey="atual" fill="url(#gradientProjAtual)" radius={[8, 8, 0, 0]} name="Risco Atual (%)" />
+                                        <Bar dataKey="mitigado" fill="url(#gradientProjMitigado)" radius={[8, 8, 0, 0]} name="Novo Risco Estimado (%)" />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
                         </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full border-separate border-spacing-y-3 text-sm">
-                                <thead>
-                                    <tr className="text-left text-xs font-semibold uppercase tracking-[0.14em] text-text-tertiary">
-                                        <th className="px-4">Aluno</th>
-                                        <th className="px-4">Risco Atual</th>
-                                        <th className="px-4">Ação recomendada</th>
-                                        <th className="px-4">Risco Mitigado</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {topRows.map((item) => {
-                                        const isMitigated = item.mitigated_risk < item.current_risk;
-                                        return (
-                                            <tr key={item.id} className="rounded-[22px] border border-border-subtle bg-white shadow-sm">
-                                                <td className="rounded-l-[20px] px-4 py-4 font-semibold text-text-primary">{item.student_name}</td>
-                                                <td className="px-4 py-4 text-text-secondary">{formatRisk(item.current_risk)}</td>
-                                                <td className="px-4 py-4 text-text-primary font-medium italic">{item.recommended_action}</td>
-                                                <td className={['rounded-r-[20px] px-4 py-4 font-semibold', isMitigated ? 'text-success' : 'text-text-secondary'].join(' ')}>
-                                                    {formatRisk(item.mitigated_risk)}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                        {/* Grade de cartões de alta fidelidade para os 6 estudantes mais críticos */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
+                            {computedStudents.map((item) => {
+                                const avatarColor = getRiskColor(item.current_risk);
+                                const isCritical = item.current_risk >= 0.75;
+                                return (
+                                    <div 
+                                        key={item.id} 
+                                        className={[
+                                            "rounded-[24px] border bg-white p-5 transition-all duration-300 hover:shadow-md hover:scale-[1.01] flex flex-col justify-between relative overflow-hidden",
+                                            isCritical ? "border-red-100 hover:border-red-200" : "border-amber-100 hover:border-amber-200"
+                                        ].join(" ")}
+                                    >
+                                        <div>
+                                            {/* Cabeçalho do Card: Avatar + Nome */}
+                                            <div className="flex items-center gap-3">
+                                                <span className={["flex h-10 w-10 items-center justify-center rounded-2xl border text-sm font-bold shadow-sm shrink-0", avatarColor].join(" ")}>
+                                                    {getInitials(item.student_name)}
+                                                </span>
+                                                <div className="truncate">
+                                                    <h5 className="text-sm font-bold text-text-primary truncate" title={item.student_name}>
+                                                        {item.student_name}
+                                                    </h5>
+                                                </div>
+                                            </div>
+
+                                            {/* Comparativo de Risco do Estudante */}
+                                            <div className="mt-4 bg-slate-50/70 rounded-2xl p-3 border border-slate-100/80">
+                                                <div className="flex items-center justify-between text-xs mb-1.5">
+                                                    <span className="text-text-secondary">Risco Atual</span>
+                                                    <span className="font-semibold text-red-600">{item.pctAtual}%</span>
+                                                </div>
+                                                
+                                                {/* Barra de Progresso Comparativa */}
+                                                <div className="w-full h-2 bg-red-100 rounded-full overflow-hidden relative">
+                                                    <div 
+                                                        className="h-full bg-emerald-500 rounded-full transition-all duration-500" 
+                                                        style={{ width: `${item.pctMitigado}%` }}
+                                                    />
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-xs mt-2">
+                                                    <span className="text-text-secondary">Novo Risco ({days}d)</span>
+                                                    <span className="font-semibold text-emerald-600">{item.pctMitigado}%</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Recomendação de Ação Personalizada */}
+                                            <div className="mt-4 space-y-1.5">
+                                                <span className="text-[10px] uppercase font-bold tracking-wider text-text-tertiary">Ação Recomendada</span>
+                                                <div className="rounded-xl border border-slate-100 bg-slate-50/30 p-3 text-xs leading-relaxed text-text-primary italic">
+                                                    "{getPersonalizedAction(item.recommended_action, item.student_name, item.id)}"
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Footer do Card com indicador de queda do risco */}
+                                        <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
+                                            <span className="text-[10px] uppercase font-semibold text-text-tertiary">Melhoria Prevista</span>
+                                            {item.dropPct > 0 ? (
+                                                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                    ↓ {item.dropPct}% risco
+                                                </span>
+                                            ) : (
+                                                <span className="text-[11px] font-medium text-text-secondary">
+                                                    Sem impacto
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </>
                 )}
@@ -412,9 +678,9 @@ function HeatmapPanel({ data }) {
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
-                        { label: 'Vermelho', description: 'Pior zona (precisa de atenção urgente).' },
-                        { label: 'Amarelo', description: 'Zona de atenção (monitorar e agir cedo).' },
-                        { label: 'Verde', description: 'Boa zona (sem sinal forte de problema).' },
+                        { label: 'Vermelho', description: 'Alerta crítico! Alunos ou turmas que precisam de ajuda muito urgente.' },
+                        { label: 'Amarelo', description: 'Atenção! Situação intermediária que vale a pena acompanhar de perto para evitar problemas maiores.' },
+                        { label: 'Verde', description: 'Situação tranquila. Alunos com bom desempenho e sem sinais de perigo.' },
                     ]}
                 />
 
@@ -482,7 +748,19 @@ function MinimalOverview({ overview, disciplines }) {
     ].filter(d => d.value > 0);
 
     return (
-        <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+        <div className="space-y-6">
+            {overview?.training_strategy ? (
+                <Card variant="muted" animate={false}>
+                    <CardHeader
+                        title="Treinamento e reconhecimento de padrões"
+                        subtitle="As planilhas históricas entram como referência para apoiar previsões e leituras do modo em tempo real."
+                        icon={BrainCircuit}
+                        action={<Badge variant="info">{overview.historical_training_records || 0} registros históricos usados</Badge>}
+                    />
+                    <p className="text-sm leading-6 text-text-secondary">{overview.training_strategy}</p>
+                </Card>
+            ) : null}
+            <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-3">
                 <MetricCard title="Alunos Mapeados" value={overview.total_students} helper="No recorte atual" icon={Users} tone="blue" />
                 <MetricCard 
@@ -548,6 +826,7 @@ function MinimalOverview({ overview, disciplines }) {
                     </div>
                 </div>
             </Card>
+            </div>
         </div>
     );
 }
@@ -567,7 +846,7 @@ function formatClassLabel(item) {
 function AnalysisIntroModal({ open, analyses, onSelect, onClose }) {
     if (!open) return null;
 
-    const safeAnalyses = analyses || [];
+    const safeAnalyses = (analyses || []).filter((item) => !EXCLUDED_MENU_ANALYSIS_IDS.has(item.id));
 
     function getSimpleDescription(id) {
         if (id === 'overview') {
@@ -582,8 +861,8 @@ function AnalysisIntroModal({ open, analyses, onSelect, onClose }) {
         if (id === 'by_semester') {
             return 'Veja como os números mudaram de um semestre para outro.';
         }
-        if (id === 'risk_topics') {
-            return 'Descubra quais disciplinas/turmas estão puxando o risco para cima.';
+        if (id === 'intervention_window') {
+            return 'Veja quais alunos ainda têm janela aberta para recuperação e quanto tempo resta para agir.';
         }
         if (id === 'discipline_bottlenecks') {
             return 'Mostra disciplinas com piores combinações de nota, presença e atividade.';
@@ -646,8 +925,8 @@ function StudentTrendsPanel({ rows }) {
                 <div className="space-y-4">
                     <MetricsHelp
                         items={[
-                            { label: 'Risco atual', description: 'Quanto maior, pior. Use para priorizar acompanhamento.' },
-                            { label: 'Mudanca de risco', description: 'Quanto o risco subiu ou desceu do primeiro para o último semestre.' },
+                            { label: 'Risco de hoje', description: 'A chance de o aluno enfrentar problemas no semestre (valores mais altos indicam que o aluno precisa de atenção imediata).' },
+                            { label: 'Evolução do risco', description: 'Mostra se a situação do aluno melhorou ou piorou em relação ao período anterior.' },
                         ]}
                     />
 
@@ -717,11 +996,42 @@ function StudentTrendsPanel({ rows }) {
 }
 
 function RiskFactorsPanel({ rows, diagnostics }) {
-    const safeRows = rows || [];
-    const chartRows = safeRows.map((item) => ({
+    function formatFallbackReason(reason) {
+        const lower = String(reason || '').toLowerCase();
+        if (lower.includes('base insuficiente') || lower.includes('insuficiente para modelagem')) {
+            return "Ainda há poucos dados registrados no arquivo para ativar a Inteligência Artificial estatística completa. Por enquanto, estamos usando regras matemáticas diretas para a sua análise.";
+        }
+        if (lower.includes('variacao suficiente') || lower.includes('variação suficiente')) {
+            return "Os alunos do arquivo enviado possuem comportamentos muito parecidos (ex: todos com notas muito altas ou todos muito baixas). Para este cenário, ativamos uma análise matemática simplificada.";
+        }
+        if (lower.includes('não foi possivel estruturar') || lower.includes('nao foi possivel estruturar')) {
+            return "Não conseguimos estruturar as colunas de dados para a IA estatística. Usando o modelo matemático básico de backup.";
+        }
+        if (lower.includes('não convergiram') || lower.includes('nao convergiram')) {
+            return "Os cálculos estatísticos complexos não puderam ser concluídos para estes dados. Ativamos a análise de regras matemáticas padrão de segurança.";
+        }
+        return reason;
+    }
+
+    // Filtrar apenas os fatores que de fato têm contribuição maior que zero (para mostrar apenas fatores usados)
+    const safeRows = (rows || []).filter(item => Number(item.avg_contribution_percent || 0) > 0.0001);
+    
+    // Normalizar a somatória para garantir exatamente 100% no painel detalhado de fatores
+    const totalSum = safeRows.reduce((sum, item) => sum + Number(item.avg_contribution_percent || 0), 0);
+    let chartRows = safeRows.map((item) => ({
+        ...item,
         fator: item.label,
-        contribuicao: Number(item.avg_contribution_percent || 0),
+        contribuicao: totalSum > 0 ? Number(((Number(item.avg_contribution_percent || 0) / totalSum) * 100).toFixed(2)) : 0,
     }));
+
+    if (chartRows.length > 0) {
+        const currentSum = chartRows.reduce((sum, item) => sum + item.contribuicao, 0);
+        const diff = Number((100 - currentSum).toFixed(2));
+        if (Math.abs(diff) > 0.001) {
+            chartRows[0].contribuicao = Number((chartRows[0].contribuicao + diff).toFixed(2));
+        }
+    }
+
     const bestModel = (diagnostics?.models || []).slice().sort((a, b) => Number(b.roc_auc || 0) - Number(a.roc_auc || 0))[0];
     const techniques = diagnostics?.techniques_used || [];
 
@@ -735,8 +1045,8 @@ function RiskFactorsPanel({ rows, diagnostics }) {
             <div className="space-y-4">
                 <MetricsHelp
                     items={[
-                        { label: 'Contribuicao', description: 'Quanto cada fator pesa, em media, no risco final (maior = pior).' },
-                        { label: 'AUC CV', description: 'Capacidade do modelo separar casos mais seguros dos mais arriscados.' },
+                        { label: 'Peso do fator', description: 'O impacto que este motivo tem na nota de risco do aluno (quanto maior o peso, mais decisivo é este problema).' },
+                        { label: 'Precisão da IA (AUC)', description: 'O nível de acerto da inteligência artificial ao separar os alunos com risco dos alunos que estão bem.' },
                     ]}
                 />
 
@@ -744,39 +1054,39 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                     <>
                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                             <MetricCard
-                                title="Melhor AUC CV"
+                                title="Nível de Acerto da IA"
                                 value={bestModel ? Number(bestModel.roc_auc || 0).toFixed(3) : '0.000'}
-                                helper={bestModel ? bestModel.label : 'Sem modelo dominante'}
+                                helper={bestModel ? `Modelo: ${bestModel.label}` : 'Sem modelo dominante'}
                                 icon={BrainCircuit}
                                 tone="purple"
                             />
                             <MetricCard
-                                title="Melhor F1"
+                                title="Equilíbrio de Previsão"
                                 value={bestModel ? Number(bestModel.f1 || 0).toFixed(3) : '0.000'}
-                                helper="Balanceia precisao e recall"
+                                helper="Equilíbrio entre acertos e falsos alertas"
                                 icon={CheckCircle2}
                                 tone="emerald"
                             />
                             <MetricCard
-                                title="Variáveis finais"
+                                title="Indicadores Analisados"
                                 value={diagnostics?.selected_feature_count || 0}
-                                helper={`${diagnostics?.folds || 0} folds de validação cruzada`}
+                                helper={`${diagnostics?.folds || 0} rodadas de teste cruzado`}
                                 icon={Layers3}
                                 tone="blue"
                             />
                             <MetricCard
-                                title="Outliers tratados"
+                                title="Dados Corrigidos"
                                 value={diagnostics?.preprocessing?.outliers_treated || 0}
-                                helper={`${diagnostics?.preprocessing?.missing_values_imputed || 0} imputações`}
+                                helper={`${diagnostics?.preprocessing?.missing_values_imputed || 0} ajustes de valores vazios`}
                                 icon={ShieldAlert}
                                 tone="amber"
                             />
                         </div>
 
                         <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/35 px-5 py-4 text-sm text-text-secondary">
-                            <p className="font-semibold text-text-primary">Pipeline estatístico ativo</p>
+                            <p className="font-semibold text-text-primary">Inteligência Artificial Ativa 🧠</p>
                             <p className="mt-2 leading-6">
-                                {diagnostics?.target_definition || 'Modelo supervisionado com pré-processamento, seleção de variáveis e ensemble.'}
+                                A análise avançada está funcionando! O sistema estudou o histórico e cruzou informações de notas vermelhas, faltas, oscilações no desempenho e entrega de tarefas para prever quais alunos precisam de mais suporte.
                             </p>
                             {!!techniques.length && (
                                 <div className="mt-4 flex flex-wrap gap-2">
@@ -789,7 +1099,7 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                     </>
                 ) : diagnostics?.reason ? (
                     <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/35 px-5 py-4 text-sm text-text-secondary">
-                        <span className="font-semibold text-text-primary">Fallback heuristico:</span> {diagnostics.reason}
+                        <span className="font-semibold text-text-primary">Análise Simplificada Ativa:</span> {formatFallbackReason(diagnostics.reason)}
                     </div>
                 ) : null}
 
@@ -801,7 +1111,7 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                     <>
                         <div className="h-72">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartRows} layout="vertical" margin={{ left: 18 }}>
+                                <BarChart data={chartRows} layout="vertical" margin={{ top: 10, right: 60, left: 10, bottom: 10 }}>
                                     <defs>
                                         <linearGradient id="gradientFactors" x1="0" y1="0" x2="1" y2="0">
                                             <stop offset="0%" stopColor="#8F5BFF" stopOpacity={0.9} />
@@ -809,10 +1119,12 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-                                    <XAxis type="number" tickLine={false} axisLine={false} fontSize={12} />
-                                    <YAxis type="category" dataKey="fator" tickLine={false} axisLine={false} fontSize={12} width={130} />
+                                    <XAxis type="number" tickLine={false} axisLine={false} fontSize={12} domain={[0, 100]} tickFormatter={(val) => `${val}%`} />
+                                    <YAxis type="category" dataKey="fator" tickLine={false} axisLine={false} fontSize={12} width={180} />
                                     <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
-                                    <Bar dataKey="contribuicao" fill="url(#gradientFactors)" radius={[10, 10, 10, 10]} name="Peso no risco (%)" />
+                                    <Bar dataKey="contribuicao" fill="url(#gradientFactors)" radius={[10, 10, 10, 10]} name="Peso no risco (%)">
+                                        <LabelList dataKey="contribuicao" position="right" formatter={(val) => `${Number(val).toFixed(1)}%`} style={{ fontSize: 11, fontWeight: 'bold', fill: '#475569' }} />
+                                    </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -826,10 +1138,10 @@ function RiskFactorsPanel({ rows, diagnostics }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {safeRows.map((item) => (
+                                    {chartRows.map((item) => (
                                         <tr key={item.id} className="rounded-[22px] border border-border-subtle bg-white shadow-sm">
-                                            <td className="rounded-l-[20px] px-4 py-4 font-semibold text-text-primary">{item.label}</td>
-                                            <td className="rounded-r-[20px] px-4 py-4 text-text-secondary">{Number(item.avg_contribution_percent || 0).toFixed(2)}%</td>
+                                            <td className="rounded-l-[20px] px-4 py-4 font-semibold text-text-primary">{item.fator}</td>
+                                            <td className="rounded-r-[20px] px-4 py-4 text-text-secondary">{Number(item.contribuicao).toFixed(2)}%</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -894,8 +1206,8 @@ function EarlyAlertsPanel({ rows, onSelectStudent, onViewCriteria }) {
             <div className="space-y-6">
                 <MetricsHelp
                     items={[
-                        { label: 'Prioridade', description: 'Quanto maior, mais urgente olhar primeiro.' },
-                        { label: 'Tags', description: 'Motivos do alerta (nota baixa, presença baixa, etc.).' },
+                        { label: 'Urgência (Prioridade)', description: 'O nível de necessidade de ajuda do aluno (quanto maior o número, mais rápido você deve falar com ele).' },
+                        { label: 'Sinalizadores (Tags)', description: 'O motivo principal que gerou o alerta (ex: notas vermelhas, faltas frequentes, poucas tarefas entregues).' },
                     ]}
                 />
 
@@ -1051,21 +1363,45 @@ function EarlyAlertsPanel({ rows, onSelectStudent, onViewCriteria }) {
 function InterventionSimulatorPanel({ data, totalStudents }) {
     const baseline = data?.baseline || {};
     const scenarios = data?.scenarios || [];
+    const subjects = data?.subjects || {};
+    const subjectNames = Object.keys(subjects).sort();
 
+    const [selectedSubject, setSelectedSubject] = useState('All');
     const [gradeDelta, setGradeDelta] = useState(0.0);
     const [attendanceDelta, setAttendanceDelta] = useState(0.0);
     const [activityDelta, setActivityDelta] = useState(0.0);
 
     useEffect(() => {
+        setSelectedSubject('All');
+    }, [data]);
+
+    useEffect(() => {
         setGradeDelta(0.0);
         setAttendanceDelta(0.0);
         setActivityDelta(0.0);
-    }, [data]);
+    }, [data, selectedSubject]);
 
-    const baselineGrade = Number(baseline.grade || 0);
-    const baselineAttendance = Number(baseline.attendance || 0);
-    const baselineActivity = Number(baseline.activity || 0);
-    const baselineRisk = Number(baseline.risk || 0);
+    const activeBaseline = selectedSubject === 'All'
+        ? {
+            grade: Number(baseline.grade || 0),
+            attendance: Number(baseline.attendance || 0),
+            activity: Number(baseline.activity || 0),
+            risk: Number(baseline.risk || 0),
+            totalStudents: Number(totalStudents || 100)
+          }
+        : {
+            grade: Number(subjects[selectedSubject]?.grade || 0),
+            attendance: Number(subjects[selectedSubject]?.attendance || 0),
+            activity: Number(subjects[selectedSubject]?.activity || 0),
+            risk: Number(subjects[selectedSubject]?.risk || 0),
+            totalStudents: Number(subjects[selectedSubject]?.total_students || 10)
+          };
+
+    const baselineGrade = activeBaseline.grade;
+    const baselineAttendance = activeBaseline.attendance;
+    const baselineActivity = activeBaseline.activity;
+    const baselineRisk = activeBaseline.risk;
+    const activeTotalStudents = activeBaseline.totalStudents;
 
     function clamp(val, min, max) {
         return Math.min(Math.max(val, min), max);
@@ -1092,7 +1428,6 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
         1.0
     );
 
-    const activeTotalStudents = Number(totalStudents || 100);
     const initialAtRiskStudents = Math.round(activeTotalStudents * baselineRisk);
     const simulatedAtRiskStudents = Math.round(activeTotalStudents * simulatedRisk);
     const studentsSaved = Math.max(0, initialAtRiskStudents - simulatedAtRiskStudents);
@@ -1134,19 +1469,38 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
                 icon={BrainCircuit}
             />
 
-            <div className="space-y-6">
+            <div className="p-6 border-t border-border-subtle bg-white/40 space-y-6">
+                {/* SELETOR DE DISCIPLINA */}
+                {subjectNames.length > 0 && (
+                    <div className="p-4 rounded-[22px] border border-border-subtle bg-bg-secondary/25 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:bg-bg-secondary/40">
+                        <div className="space-y-1">
+                            <span className="text-xs font-semibold text-text-secondary uppercase tracking-[0.14em]">Escopo da Simulação</span>
+                            <p className="text-[11px] text-text-tertiary">Selecione uma disciplina específica para ajustar os sliders sobre as médias dela, ou simule para toda a turma de forma consolidada.</p>
+                        </div>
+                        <select
+                            value={selectedSubject}
+                            onChange={(e) => setSelectedSubject(e.target.value)}
+                            className="rounded-xl border border-border-subtle bg-white px-4 py-2 text-xs font-semibold text-text-primary shadow-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer min-w-[240px]"
+                        >
+                            <option value="All">Todas as Disciplinas (Geral)</option>
+                            {subjectNames.map(name => (
+                                <option key={name} value={name}>{name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 {/* ÁREA DOS SLIDERS REATIVOS */}
                 <div className="grid gap-6 md:grid-cols-3">
                     {/* Nota Média Slider */}
                     <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-5 transition-all hover:bg-bg-secondary/40">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/45 dark:text-indigo-400">
                                     <BookOpen className="h-4 w-4" />
                                 </span>
                                 <span className="text-sm font-semibold text-text-primary">Nota Média</span>
                             </div>
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${gradeDelta > 0 ? 'bg-emerald-100 text-emerald-700' : gradeDelta < 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${gradeDelta > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/45 dark:text-emerald-400' : gradeDelta < 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/45 dark:text-rose-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
                                 {gradeDelta > 0 ? '+' : ''}{gradeDelta.toFixed(1)}
                             </span>
                         </div>
@@ -1172,12 +1526,12 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
                     <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-5 transition-all hover:bg-bg-secondary/40">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
+                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-600 dark:bg-teal-950/45 dark:text-teal-400">
                                     <Users className="h-4 w-4" />
                                 </span>
                                 <span className="text-sm font-semibold text-text-primary">Frequência</span>
                             </div>
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${attendanceDelta > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${attendanceDelta > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/45 dark:text-emerald-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
                                 {attendanceDelta > 0 ? '+' : ''}{attendanceDelta}%
                             </span>
                         </div>
@@ -1195,7 +1549,7 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
                             className="mt-3 w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600 focus:outline-none"
                         />
                         <p className="mt-2 text-[10px] text-text-tertiary">
-                            Simula busca ativa, contato com pais/alunos faltosos ou melhoria de acolhimento.
+                            Simula busca ativa, contato com parents/alunos faltosos ou melhoria de acolhimento.
                         </p>
                     </div>
 
@@ -1203,12 +1557,12 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
                     <div className="rounded-[22px] border border-border-subtle bg-bg-secondary/25 p-5 transition-all hover:bg-bg-secondary/40">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950/45 dark:text-amber-400">
                                     <CheckCircle2 className="h-4 w-4" />
                                 </span>
                                 <span className="text-sm font-semibold text-text-primary">Atividades</span>
                             </div>
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${activityDelta > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${activityDelta > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/45 dark:text-emerald-400' : activityDelta < 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/45 dark:text-rose-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
                                 {activityDelta > 0 ? '+' : ''}{activityDelta}%
                             </span>
                         </div>
@@ -1218,8 +1572,8 @@ function InterventionSimulatorPanel({ data, totalStudents }) {
                         </div>
                         <input
                             type="range"
-                            min="0"
-                            max="40"
+                            min={-baselineActivity}
+                            max={100 - baselineActivity}
                             step="1"
                             value={activityDelta}
                             onChange={(e) => setActivityDelta(Number(e.target.value))}
@@ -1433,10 +1787,10 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
                     <div className="space-y-4">
                         <MetricsHelp
                             items={[
-                                { label: 'Nivel', description: 'Um resumo do risco. "Alto" e "crítico" merecem atenção primeiro.' },
-                                { label: 'Risco', description: 'Probabilidade de evasão (quanto maior, pior).'} ,
-                                { label: 'Nota', description: 'Média de notas do aluno nessa turma.' },
-                                { label: 'Presença', description: 'Percentual de presença (quanto maior, melhor).' },
+                                { label: 'Faixa de risco (Nível)', description: 'Uma classificação do perigo. Alunos classificados como "Alto" ou "Crítico" precisam ser contactados primeiro.' },
+                                { label: 'Chance de evasão (Risco)', description: 'A probabilidade de o aluno abandonar o curso ou reprovar (quanto mais próximo de 100%, mais grave é a situação).' },
+                                { label: 'Notas', description: 'A média atual do aluno nesta disciplina específica.' },
+                                { label: 'Presença', description: 'A frequência às aulas registrada até o momento (valores abaixo de 75% geram alertas de falta).' },
                             ]}
                         />
 
@@ -1480,7 +1834,7 @@ function AtRiskStudentsPanel({ title, subtitle, classLabel, rows, loading, error
                                             <p className="font-semibold text-text-primary">{item.student_name}</p>
                                             <p className="mt-1 text-sm text-text-secondary">{item.course_name}</p>
                                         </td>
-                                        <td className="px-4 py-4"><Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge></td>
+                                        <td className="px-4 py-4"><Badge variant={getRiskVariant(item.risk_level)}>{riskLabels[item.risk_level] || item.risk_level}</Badge></td>
                                         <td className="px-4 py-4 text-text-secondary">{formatRisk(item.risk_score)}</td>
                                         <td className="px-4 py-4 font-semibold text-text-primary">{Number(item.grade_average || 0).toFixed(2)}</td>
                                         <td className="px-4 py-4 text-text-secondary">{formatPercent(item.attendance)}</td>
@@ -1677,15 +2031,15 @@ function BetweenClassesPanel({ title, subtitle, rows }) {
                     <div className="px-6">
                         <MetricsHelp
                             items={comparisonTab === 'predicted' ? [
-                                { label: 'Índice de risco', description: 'Chance estimada de evasão/reprovação (menor é melhor).' },
-                                { label: 'Nota média', description: 'Previsão da média de notas da turma (maior é melhor).' },
-                                { label: 'Presença média', description: 'Previsão de presença final (maior é melhor).' },
+                                { label: 'Índice de risco', description: 'Chance estimada de o aluno desistir ou ser reprovado até o final do período (valores menores são melhores).' },
+                                { label: 'Nota média', description: 'Previsão de qual será a nota final média da turma inteira.' },
+                                { label: 'Presença média', description: 'Estimativa de qual será a frequência final média de presença dos alunos.' },
                             ] : [
-                                { label: 'Índice de risco real', description: 'Risco medido até o momento (menor é melhor).' },
-                                { label: 'Nota média real', description: 'Média de notas acumuladas real (maior é melhor).' },
-                                { label: 'Presença média real', description: 'Frequência acumulada real (maior é melhor).' },
-                                { label: 'Atividade média', description: 'Percentual médio de entrega de tarefas (maior é melhor).' },
-                                { label: 'Alunos que trabalham', description: 'Percentual de alunos matriculados que estão trabalhando.' },
+                                { label: 'Índice de risco real', description: 'O risco atual de reprovação calculado com os dados disponíveis hoje.' },
+                                { label: 'Nota média real', description: 'Média real das notas acumuladas pelos alunos até agora.' },
+                                { label: 'Presença média real', description: 'Frequência real de presença registrada nas aulas até hoje.' },
+                                { label: 'Atividade média', description: 'Média de entrega dos trabalhos e tarefas propostas na disciplina.' },
+                                { label: 'Alunos que trabalham', description: 'Porcentagem da turma que divide a rotina de estudos com um emprego.' },
                             ]}
                         />
                     </div>
@@ -1940,12 +2294,20 @@ function OverviewPanel({ workspace, isCoordinator }) {
     ];
 
     // Normalizar os top 5 fatores para que a soma exibida no gráfico da página inicial seja exatamente 100%
-    const top5Raw = baseFactors.slice(0, 5);
+    const top5Raw = baseFactors.filter(f => (f.avg_contribution_percent || 0) > 0.0001).slice(0, 5);
     const sumTop5 = top5Raw.reduce((sum, f) => sum + (f.avg_contribution_percent || 0), 0);
-    const riskFactors = top5Raw.map(f => ({
+    let riskFactors = top5Raw.map(f => ({
         ...f,
         avg_contribution_percent: sumTop5 > 0 ? Number(((f.avg_contribution_percent / sumTop5) * 100).toFixed(2)) : 0
     }));
+
+    if (riskFactors.length > 0) {
+        const totalSum = riskFactors.reduce((sum, f) => sum + f.avg_contribution_percent, 0);
+        const diff = Number((100 - totalSum).toFixed(2));
+        if (Math.abs(diff) > 0.001) {
+            riskFactors[0].avg_contribution_percent = Number((riskFactors[0].avg_contribution_percent + diff).toFixed(2));
+        }
+    }
 
     const primaryFactorKey = riskFactors[0]?.key || "nota";
     let recommendations = [];
@@ -2374,13 +2736,14 @@ function OverviewPanel({ workspace, isCoordinator }) {
                             <BarChart 
                                 data={riskFactors.slice(0, 5)} 
                                 layout="vertical" 
-                                margin={{ top: 10, right: 30, left: 60, bottom: 5 }}
+                                margin={{ top: 10, right: 50, left: 10, bottom: 5 }}
                             >
                                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
                                 <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} domain={[0, 100]} tickFormatter={(val) => `${val}%`} />
-                                <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} fontSize={11} width={130} stroke="#64748B" />
+                                <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} fontSize={11} width={160} stroke="#64748B" />
                                 <Tooltip content={<GlobalCustomTooltip />} cursor={false} />
                                 <Bar dataKey="avg_contribution_percent" fill="#6366f1" radius={[0, 8, 8, 0]} name="Impacto no Risco (%)">
+                                    <LabelList dataKey="avg_contribution_percent" position="right" formatter={(val) => `${Number(val).toFixed(1)}%`} style={{ fontSize: 10.5, fontWeight: 'bold', fill: '#334155' }} />
                                     {riskFactors.slice(0, 5).map((entry, index) => {
                                         const colors = ['#6366f1', '#8b5cf6', '#a78bfa', '#ec4899', '#f43f5e'];
                                         return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
@@ -2453,7 +2816,7 @@ function ClassesPanel({ title, subtitle, rows, comparison = false, onSelectRow }
                                 <td className="px-4 py-4 text-text-secondary">{formatPercent(item.avg_attendance)}</td>
                                 <td className="px-4 py-4 text-text-secondary">{formatPercent(item.avg_activity)}</td>
                                 <td className="px-4 py-4 text-text-secondary">{formatPercent(item.working_share)}</td>
-                                <td className="px-4 py-4"><Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge></td>
+                                <td className="px-4 py-4"><Badge variant={getRiskVariant(item.risk_level)}>{riskLabels[item.risk_level] || item.risk_level}</Badge></td>
                                 <td className="rounded-r-[20px] px-4 py-4 text-text-secondary">
                                     {comparison ? `${(item.risk_delta * 100).toFixed(1)}%` : formatRisk(item.risk_score)}
                                 </td>
@@ -2471,8 +2834,8 @@ function SemesterPanel({ rows }) {
         <div className="space-y-6">
             <Card>
                 <CardHeader
-                    title="Evolucao por semestre"
-                    subtitle="Mudancas de nota, risco, engajamento e contexto ao longo dos periodos."
+                    title="Evolução por semestre"
+                    subtitle="Mudanças de nota, risco, engajamento e contexto ao longo dos períodos."
                     icon={CalendarRange}
                 />
                 <div className="h-80">
@@ -2523,37 +2886,156 @@ function SemesterPanel({ rows }) {
     );
 }
 
-function RiskTopicsPanel({ rows }) {
-    return (
-        <div className="space-y-4">
-            <Card>
-                <CardHeader 
-                    title="Tópicos de Alerta" 
-                    subtitle="Cruzamento de indicadores que mostram os principais focos de atenção e queda de rendimento."
-                    icon={BrainCircuit}
-                />
-            </Card>
-            <div className="grid gap-4 xl:grid-cols-2">
-                {rows.map((item) => (
-                    <Card key={item.id}>
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className="text-base font-semibold text-text-primary">{item.label}</p>
-                                <p className="mt-1 text-sm text-text-secondary">
-                                    {item.type} • {item.semester}
-                                </p>
+function InterventionWindowPanel({ rows }) {
+    const safeRows = rows || [];
+
+    const urgente   = safeRows.filter(r => r.zone === 'urgente');
+    const recuperavel = safeRows.filter(r => r.zone === 'recuperavel');
+    const preventivo = safeRows.filter(r => r.zone === 'preventivo');
+
+    const zoneConfig = {
+        urgente:    { label: 'Urgência Crítica',        color: 'red',     bg: 'bg-red-50',    border: 'border-red-200',   badge: 'bg-red-100 text-red-700 border-red-200',   dot: 'bg-red-500',    text: 'Ação imediata necessária — aluno ultrapassou o limiar crítico.' },
+        recuperavel:{ label: 'Ainda Recuperável',       color: 'amber',   bg: 'bg-amber-50',  border: 'border-amber-200', badge: 'bg-amber-100 text-amber-700 border-amber-200', dot: 'bg-amber-500',  text: 'Janela de recuperação aberta — agir logo evita a crise.' },
+        preventivo: { label: 'Monitoramento Preventivo',color: 'blue',    bg: 'bg-blue-50',   border: 'border-blue-200',  badge: 'bg-blue-100 text-blue-700 border-blue-200',   dot: 'bg-blue-500',   text: 'Sinal de alerta inicial — monitorar de perto para agir cedo.' },
+    };
+
+    function getInitials(name) {
+        const parts = String(name || '').split(' ');
+        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+        return (parts[0]?.[0] || 'A').toUpperCase();
+    }
+
+    function ZoneSection({ zone, items }) {
+        const cfg = zoneConfig[zone];
+        if (!items.length) return null;
+        return (
+            <div className="space-y-3">
+                <div className={`flex items-center gap-3 rounded-2xl border px-5 py-3 ${cfg.bg} ${cfg.border}`}>
+                    <span className={`h-2.5 w-2.5 rounded-full ${cfg.dot} shadow-sm`} />
+                    <div className="flex-1">
+                        <span className="text-sm font-bold text-text-primary">{cfg.label}</span>
+                        <span className="ml-2 text-xs text-text-secondary">— {cfg.text}</span>
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
+                        {items.length} {items.length === 1 ? 'aluno' : 'alunos'}
+                    </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {items.map(item => (
+                        <div
+                            key={item.id}
+                            className={`rounded-[22px] border p-4 bg-white flex flex-col gap-3 transition-all hover:shadow-md hover:scale-[1.01] ${cfg.border}`}
+                        >
+                            {/* Header */}
+                            <div className="flex items-center gap-3">
+                                <span className={`flex h-9 w-9 items-center justify-center rounded-xl border text-sm font-bold shrink-0 ${cfg.badge}`}>
+                                    {getInitials(item.student_name)}
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-bold text-text-primary truncate" title={item.student_name}>
+                                        {item.student_name}
+                                    </p>
+                                    {item.subjects?.length > 0 && (
+                                        <p className="text-[10px] text-text-tertiary truncate">{item.subjects.join(' • ')}</p>
+                                    )}
+                                </div>
                             </div>
-                            <Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge>
+
+                            {/* Risco + barra */}
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-text-secondary">Risco atual</span>
+                                    <span className="font-bold text-text-primary">{item.risk_pct}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-500 ${
+                                            zone === 'urgente' ? 'bg-red-500' :
+                                            zone === 'recuperavel' ? 'bg-amber-500' : 'bg-blue-500'
+                                        }`}
+                                        style={{ width: `${item.risk_pct}%` }}
+                                    />
+                                </div>
+                                <div className="flex justify-between text-[10px] text-text-tertiary">
+                                    <span>Nota: {Number(item.avg_grade || 0).toFixed(1)}</span>
+                                    <span>Presença: {Math.round(Number(item.avg_attendance || 0))}%</span>
+                                </div>
+                            </div>
+
+                            {/* Tempo restante */}
+                            {item.days_estimate !== null && item.days_estimate !== undefined ? (
+                                <div className={`rounded-xl border px-3 py-2 flex items-center justify-between text-xs ${cfg.bg} ${cfg.border}`}>
+                                    <span className="text-text-secondary">Prazo estimado para agir</span>
+                                    <span className="font-bold text-text-primary">~{item.days_estimate} dias</span>
+                                </div>
+                            ) : (
+                                <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 flex items-center justify-between text-xs">
+                                    <span className="text-red-700 font-semibold">Ponto crítico ultrapassado</span>
+                                    <span className="text-red-500 font-bold">Agir hoje</span>
+                                </div>
+                            )}
+
+                            {/* Causas */}
+                            {item.top_drivers?.length > 0 && (
+                                <div className="space-y-1">
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-text-tertiary">Principais causas</span>
+                                    <div className="flex flex-wrap gap-1">
+                                        {item.top_drivers.map(d => (
+                                            <span key={d} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-text-secondary border border-slate-200">
+                                                {d}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Recomendação */}
+                            <div className="rounded-xl border border-slate-100 bg-slate-50/40 px-3 py-2 text-xs leading-relaxed text-text-primary italic">
+                                "{item.recommendation}"
+                            </div>
                         </div>
-                        <p className="mt-4 text-sm leading-6 text-text-secondary">{item.signal}</p>
-                        <p className="mt-3 text-sm text-text-secondary">{item.evidence}</p>
-                        <div className="mt-4 rounded-2xl bg-bg-secondary/50 p-4 text-sm leading-6 text-text-secondary">
-                            {item.recommendation}
-                        </div>
-                    </Card>
-                ))}
+                    ))}
+                </div>
             </div>
-        </div>
+        );
+    }
+
+    return (
+        <Card>
+            <CardHeader
+                title="Janela de Intervenção Crítica"
+                subtitle="Classifica alunos por zona de urgência e estima quanto tempo ainda há para agir preventivamente."
+                icon={CalendarRange}
+            />
+            <div className="space-y-6">
+                {!safeRows.length ? (
+                    <div className="rounded-[22px] border border-dashed border-border-subtle bg-bg-secondary/40 px-6 py-10 text-center text-sm text-text-secondary">
+                        Ainda não há dados suficientes para calcular a janela de intervenção.
+                    </div>
+                ) : (
+                    <>
+                        {/* Resumo por zona */}
+                        <div className="grid grid-cols-3 gap-4">
+                            {[
+                                { zone: 'urgente',    count: urgente.length,    label: 'Urgência Crítica',         color: 'text-red-600',   bg: 'bg-red-50 border-red-200' },
+                                { zone: 'recuperavel',count: recuperavel.length, label: 'Ainda Recuperável',        color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+                                { zone: 'preventivo', count: preventivo.length,  label: 'Monitoramento Preventivo',  color: 'text-blue-600',  bg: 'bg-blue-50 border-blue-200' },
+                            ].map(z => (
+                                <div key={z.zone} className={`rounded-[22px] border p-4 text-center ${z.bg}`}>
+                                    <p className={`text-2xl font-bold ${z.color}`}>{z.count}</p>
+                                    <p className="text-xs font-semibold text-text-secondary mt-1">{z.label}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        <ZoneSection zone="urgente"    items={urgente} />
+                        <ZoneSection zone="recuperavel" items={recuperavel} />
+                        <ZoneSection zone="preventivo"  items={preventivo} />
+                    </>
+                )}
+            </div>
+        </Card>
     );
 }
 
@@ -2575,7 +3057,7 @@ function DisciplinePanel({ rows }) {
                                 <p className="text-base font-semibold text-text-primary">{item.label}</p>
                                 <p className="mt-1 text-sm text-text-secondary">Projeção com base em {item.records} históricos</p>
                             </div>
-                            <Badge variant={getRiskVariant(item.risk_level)}>{item.risk_level}</Badge>
+                            <Badge variant={getRiskVariant(item.risk_level)}>{riskLabels[item.risk_level] || item.risk_level}</Badge>
                         </div>
                         <div className="mt-5 grid grid-cols-2 gap-3">
                             <StatBox 
@@ -2640,11 +3122,29 @@ function StatBox({ label, value, helper }) {
     );
 }
 
-export function AnalysisCenter() {
+function getAnalysisEndpoints(dataSource) {
+    if (dataSource === 'live') {
+        return {
+            workspace: '/live-data/analysis-workspace',
+            atRiskStudents: '/live-data/analysis-workspace/at-risk-students',
+            exportWorkspace: '/live-data/analysis-workspace/export',
+        };
+    }
+
+    return {
+        workspace: '/historical-data/analysis-workspace',
+        atRiskStudents: '/historical-data/analysis-workspace/at-risk-students',
+        exportWorkspace: '/historical-data/analysis-workspace/export',
+    };
+}
+
+export function AnalysisCenter({ dataSource = 'historical' }) {
     const { user } = useAuth();
     const role = user?.role?.toLowerCase();
     const isCoordinator = role === 'coordinator';
     const historyRoute = isProfessorLikeRole(role) ? buildRolePath(role, 'historical-upload') : '/coordinator/dashboard';
+    const isLiveMode = dataSource === 'live';
+    const endpoints = getAnalysisEndpoints(dataSource);
     const [searchParams, setSearchParams] = useSearchParams();
     const location = useLocation();
 
@@ -2655,6 +3155,7 @@ export function AnalysisCenter() {
     const [selectedSubject, setSelectedSubject] = useState(searchParams.get('subject') || '');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [reloadNonce, setReloadNonce] = useState(0);
     const [exportingFormat, setExportingFormat] = useState('');
     const [exportError, setExportError] = useState('');
 
@@ -2663,6 +3164,25 @@ export function AnalysisCenter() {
     const [atRiskError, setAtRiskError] = useState('');
     const [atRiskStudents, setAtRiskStudents] = useState([]);
     const [selectedStudentId, setSelectedStudentId] = useState(null);
+    const [selectedStudentName, setSelectedStudentName] = useState('');
+
+    useEffect(() => {
+        if (selectedStudentId === null) {
+            setSelectedStudentName('');
+        }
+    }, [selectedStudentId]);
+
+    useEffect(() => {
+        if (selectedStudentId && !selectedStudentName) {
+            api.get(`/students/${selectedStudentId}/detail`)
+                .then(res => {
+                    setSelectedStudentName(res.data?.student?.name || 'Aluno');
+                })
+                .catch(() => {
+                    setSelectedStudentName('Aluno');
+                });
+        }
+    }, [selectedStudentId, selectedStudentName]);
 
     const [criteriaModalItem, setCriteriaModalItem] = useState(null);
 
@@ -2676,7 +3196,10 @@ export function AnalysisCenter() {
 
     const [showIntro, setShowIntro] = useState(false);
     const [activeDropdownGroup, setActiveDropdownGroup] = useState(null);
-
+    const [mobileAnalysesOpen, setMobileAnalysesOpen] = useState(false);
+    const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+    const analysesMenuRef = useRef(null);
+    const filtersMenuRef = useRef(null);
     const analyses = workspace?.available_analyses || [];
     const hasRecords = Number(workspace?.overview?.total_records || 0) > 0;
 
@@ -2691,20 +3214,20 @@ export function AnalysisCenter() {
             {
                 id: 'compare',
                 title: 'Análises Comparativas',
-                description: 'Compare desempenhos e acompanhe evoluções entre turmas, semestres e alunos.',
-                analysisIds: ['by_class', 'between_classes', 'by_semester', 'student_trends', 'heatmap'],
+                description: 'Compare desempenhos e acompanhe evoluções entre turmas.',
+                analysisIds: ['by_class', 'between_classes', 'heatmap'],
             },
             {
                 id: 'predictive',
                 title: 'Previsões e Alertas',
                 description: 'Monitore alertas precoces e previsões de risco por disciplina ou aluno.',
-                analysisIds: ['early_alerts', 'risk_projection', 'discipline_risk', 'risk_topics', 'intervention_priorities'],
+                analysisIds: ['early_alerts', 'risk_projection', 'discipline_risk', 'intervention_window', 'intervention_priorities'],
             },
             {
                 id: 'factors',
                 title: 'Fatores e Simulações',
                 description: 'Entenda os causadores do risco e simule melhorias de desempenho.',
-                analysisIds: ['risk_factors', 'student_segments', 'intervention_simulator', 'discipline_bottlenecks'],
+                analysisIds: ['risk_factors', 'intervention_simulator', 'discipline_bottlenecks'],
             },
         ];
 
@@ -2744,7 +3267,7 @@ export function AnalysisCenter() {
             early_alerts: Array.isArray(data?.early_alerts) ? data.early_alerts.length : 0,
             by_class: Array.isArray(data?.by_class) ? data.by_class.length : 0,
             between_classes: Array.isArray(data?.between_classes) ? data.between_classes.length : 0,
-            risk_topics: Array.isArray(data?.risk_topics) ? data.risk_topics.length : 0,
+            intervention_window: Array.isArray(data?.intervention_window) ? data.intervention_window.length : 0,
         };
     }, [workspace]);
 
@@ -2769,7 +3292,7 @@ export function AnalysisCenter() {
             student_segments: (data.student_segments || []).filter((row) => includesText(row.label)),
             by_class: (data.by_class || []).filter((row) => includesText(row.label) || includesText(row.subject) || includesText(row.semester)),
             between_classes: (data.between_classes || []).filter((row) => includesText(row.label) || includesText(row.subject) || includesText(row.semester)),
-            risk_topics: (data.risk_topics || []).filter((row) => includesText(row.title) || includesText(row.subject) || includesText(row.label)),
+            intervention_window: (data.intervention_window || []).filter((row) => includesText(row.student_name) || includesText(row.zone_label)),
             discipline_bottlenecks: (data.discipline_bottlenecks || []).filter((row) => includesText(row.label) || includesText(row.subject)),
             heatmap: {
                 ...(data.heatmap || {}),
@@ -2801,25 +3324,17 @@ export function AnalysisCenter() {
                 keys: ['risco alto', 'alto risco', 'critico', 'criticos'],
                 section: 'action',
                 analysis: 'by_class',
-                allowed: ['by_class', 'early_alerts', 'intervention_priorities', 'risk_topics', 'discipline_risk'],
+                allowed: ['by_class', 'early_alerts', 'intervention_priorities', 'intervention_window', 'discipline_risk'],
             },
             { keys: ['turma', 'turmas'], section: 'action', analysis: 'by_class' },
             {
                 keys: ['fator', 'fatores', 'motivo', 'causa', 'porque', 'por que'],
                 section: 'explain',
                 analysis: 'risk_factors',
-                allowed: ['risk_factors', 'early_alerts', 'by_class', 'risk_topics', 'discipline_risk'],
-            },
-            {
-                keys: ['segmento', 'segmentos', 'perfil', 'perfis'],
-                section: 'explain',
-                analysis: 'student_segments',
-                allowed: ['student_segments', 'risk_factors', 'early_alerts'],
+                allowed: ['risk_factors', 'early_alerts', 'by_class', 'intervention_window', 'discipline_risk'],
             },
             { keys: ['simulador', 'intervencao', 'intervenção', 'impacto'], section: 'explain', analysis: 'intervention_simulator' },
-            { keys: ['tendencia', 'tendencias', 'evolucao', 'evolução'], section: 'trend', analysis: 'student_trends' },
             { keys: ['projecao', 'projetar', 'futuro', '8 semanas', '4 semanas'], section: 'trend', analysis: 'risk_projection' },
-            { keys: ['semestre', 'semestres'], section: 'trend', analysis: 'by_semester' },
             { keys: ['comparar', 'comparacao', 'entre turmas'], section: 'compare', analysis: 'between_classes' },
             {
                 keys: ['mapa', 'calor', 'heatmap'],
@@ -2830,8 +3345,8 @@ export function AnalysisCenter() {
             {
                 keys: ['assunto', 'assuntos', 'topico', 'topicos'],
                 section: 'compare',
-                analysis: 'risk_topics',
-                allowed: ['risk_topics', 'discipline_risk', 'discipline_bottlenecks', 'heatmap', 'by_class'],
+                analysis: 'intervention_window',
+                allowed: ['intervention_window', 'discipline_risk', 'discipline_bottlenecks', 'heatmap', 'by_class'],
             },
             { keys: ['gargalo', 'gargalos', 'disciplina', 'disciplinas'], section: 'compare', analysis: 'discipline_bottlenecks' },
         ];
@@ -2869,7 +3384,7 @@ export function AnalysisCenter() {
             setLoading(true);
             setError('');
             try {
-                const response = await api.get('/historical-data/analysis-workspace', {
+                const response = await api.get(endpoints.workspace, {
                     params: {
                         semester: selectedSemester || undefined,
                         course_name: selectedCourse || undefined,
@@ -2878,14 +3393,14 @@ export function AnalysisCenter() {
                 });
                 setWorkspace(response.data);
             } catch (requestError) {
-                setError(requestError.response?.data?.detail || 'Nao foi possivel carregar a central analitica.');
+                setError(requestError.response?.data?.detail || 'Não foi possível carregar a central analítica.');
             } finally {
                 setLoading(false);
             }
         }
 
         fetchWorkspace();
-    }, [selectedSemester, selectedCourse, selectedSubject]);
+    }, [endpoints.workspace, isLiveMode, reloadNonce, selectedSemester, selectedCourse, selectedSubject]);
 
     useEffect(() => {
         const shouldOpen = Boolean(location?.state?.openAnalysisIntro);
@@ -2910,6 +3425,130 @@ export function AnalysisCenter() {
         }
     }, [selectedAnalysis, analysisGroups]);
 
+    useEffect(() => {
+        if (EXCLUDED_MENU_ANALYSIS_IDS.has(selectedAnalysis)) {
+            setSelectedAnalysis('overview');
+        }
+    }, [selectedAnalysis]);
+
+    useEffect(() => {
+        setMobileAnalysesOpen(false);
+        setMobileFiltersOpen(false);
+    }, [location.pathname]);
+
+    useEffect(() => {
+        function handlePointerDown(event) {
+            if (analysesMenuRef.current && !analysesMenuRef.current.contains(event.target)) {
+                setMobileAnalysesOpen(false);
+            }
+            if (filtersMenuRef.current && !filtersMenuRef.current.contains(event.target)) {
+                setMobileFiltersOpen(false);
+            }
+        }
+
+        document.addEventListener('mousedown', handlePointerDown);
+        return () => document.removeEventListener('mousedown', handlePointerDown);
+    }, []);
+
+    function handleSelectAnalysis(nextId) {
+        setSelectedAnalysis(nextId);
+        setMobileAnalysesOpen(false);
+        scrollToResults();
+    }
+
+    function renderAnalysesMenuContent() {
+        return (
+            <>
+                <button
+                    type="button"
+                    onClick={() => handleSelectAnalysis('overview')}
+                    className={[
+                        'w-full rounded-xl px-3 py-2.5 text-left transition-all duration-150 flex items-center gap-2 outline-none focus:outline-none',
+                        selectedAnalysis === 'overview'
+                            ? 'bg-indigo-50 text-indigo-700 font-semibold dark:bg-indigo-950/40 dark:text-indigo-300'
+                            : 'text-text-secondary hover:bg-bg-secondary hover:text-text-primary'
+                    ].join(' ')}
+                >
+                    <LayoutDashboard className="h-4 w-4" />
+                    <span className="text-[12.5px] font-semibold">Resumo Geral</span>
+                </button>
+
+                <div className="border-t border-border-subtle pt-2.5 space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary px-2 mb-2">Tópicos de Análise</p>
+                    {analysisGroups.map((group) => {
+                        const isExpanded = activeDropdownGroup === group.id;
+                        const groupHasActiveAnalysis = group.analysisIds.includes(selectedAnalysis);
+                        const groupAnalyses = group.available;
+
+                        return (
+                            <div
+                                key={group.id}
+                                className="border border-border-subtle/80 rounded-xl overflow-hidden bg-bg-secondary/20 transition-all duration-200"
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveDropdownGroup(isExpanded ? null : group.id)}
+                                    className={[
+                                        'w-full px-3 py-2 text-left flex items-center justify-between transition-colors outline-none focus:outline-none',
+                                        groupHasActiveAnalysis
+                                            ? 'text-indigo-700 font-semibold dark:text-indigo-400'
+                                            : 'text-text-primary hover:bg-bg-secondary/40'
+                                    ].join(' ')}
+                                >
+                                    <span className="text-[12px] font-semibold flex items-center gap-1.5">
+                                        <span className={`h-1.5 w-1.5 rounded-full ${groupHasActiveAnalysis ? 'bg-indigo-600 dark:bg-indigo-400' : 'bg-slate-400 dark:bg-slate-600'}`} />
+                                        {group.title}
+                                    </span>
+                                    {isExpanded ? (
+                                        <ChevronDown className="h-3.5 w-3.5 text-text-tertiary transition-transform duration-200 rotate-180" />
+                                    ) : (
+                                        <ChevronRight className="h-3.5 w-3.5 text-text-tertiary transition-transform duration-200" />
+                                    )}
+                                </button>
+
+                                {isExpanded && (
+                                    <div className="px-2 pb-2 pt-1 border-t border-border-subtle/50 bg-bg-card space-y-1 animate-fadeIn">
+                                        {groupAnalyses.map((item) => {
+                                            const active = item.id === selectedAnalysis;
+                                            return (
+                                                <button
+                                                    key={item.id}
+                                                    type="button"
+                                                    onClick={() => handleSelectAnalysis(item.id)}
+                                                    className={[
+                                                        'w-full rounded-lg px-2.5 py-1.5 text-left transition-all duration-150 flex flex-col gap-0.5 outline-none focus:outline-none',
+                                                        active
+                                                            ? 'bg-indigo-50/70 text-indigo-700 font-semibold border-l-2 border-indigo-600 pl-2 dark:bg-indigo-950/35 dark:text-indigo-300 dark:border-indigo-400'
+                                                            : 'text-text-secondary hover:bg-bg-secondary/40 hover:text-text-primary'
+                                                    ].join(' ')}
+                                                >
+                                                    <span className="text-[11.5px] font-medium">{item.label}</span>
+                                                    {item.description && (
+                                                        <span className="text-[9.5px] opacity-75 line-clamp-2 lg:line-clamp-1">{item.description}</span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </>
+        );
+    }
+
+    function renderFiltersContent() {
+        return (
+            <div className="grid gap-4 md:grid-cols-3">
+                <FilterSelect label="Semestre" value={selectedSemester} onChange={setSelectedSemester} options={workspace?.filters?.semesters || []} />
+                <FilterSelect label="Curso" value={selectedCourse} onChange={setSelectedCourse} options={workspace?.filters?.courses || []} />
+                <FilterSelect label="Disciplina" value={selectedSubject} onChange={setSelectedSubject} options={workspace?.filters?.subjects || []} />
+            </div>
+        );
+    }
+
     function scrollToResults() {
         if (!detailsResultRef.current) return;
         requestAnimationFrame(() => {
@@ -2918,24 +3557,33 @@ export function AnalysisCenter() {
     }
 
     async function handleOpenStudent(item) {
+        const name = String(item?.student_name || item?.name || '').trim();
+        if (name) {
+            setSelectedStudentName(name);
+        }
+
         const directId = item?.student_id;
         if (directId) {
             setSelectedStudentId(directId);
             return;
         }
 
-        const name = String(item?.student_name || '').trim();
         if (!name) return;
 
         try {
-            const response = await api.get('/api/students', {
+            const response = await api.get('/students', {
                 params: {
                     search: name,
                     limit: 1,
                 },
             });
             const resolvedId = response.data?.students?.[0]?.id;
-            if (resolvedId) setSelectedStudentId(resolvedId);
+            if (resolvedId) {
+                setSelectedStudentId(resolvedId);
+                if (response.data?.students?.[0]?.name) {
+                    setSelectedStudentName(response.data.students[0].name);
+                }
+            }
         } catch (requestError) {
             // silently ignore (no access / no match)
         }
@@ -2956,7 +3604,7 @@ export function AnalysisCenter() {
 
         setAtRiskLoading(true);
         try {
-            const response = await api.get('/historical-data/analysis-workspace/at-risk-students', {
+            const response = await api.get(endpoints.atRiskStudents, {
                 params: {
                     class_key: item.id,
                     semester: selectedSemester || undefined,
@@ -2967,7 +3615,7 @@ export function AnalysisCenter() {
             });
             setAtRiskStudents((response.data?.students || []).slice(0, 4));
         } catch (requestError) {
-            setAtRiskError(requestError.response?.data?.detail || 'Nao foi possivel carregar alunos em risco.');
+            setAtRiskError(requestError.response?.data?.detail || 'Não foi possível carregar alunos em risco.');
         } finally {
             setAtRiskLoading(false);
         }
@@ -2984,6 +3632,10 @@ export function AnalysisCenter() {
 
     useEffect(() => {
         if (!workspace?.available_analyses?.length) return;
+        if (EXCLUDED_MENU_ANALYSIS_IDS.has(selectedAnalysis)) {
+            setSelectedAnalysis('overview');
+            return;
+        }
         const exists = workspace.available_analyses.some((item) => item.id === selectedAnalysis);
         if (!exists) setSelectedAnalysis(workspace.available_analyses[0].id);
     }, [workspace, selectedAnalysis]);
@@ -2992,7 +3644,7 @@ export function AnalysisCenter() {
         try {
             setExportingFormat(format);
             setExportError('');
-            const response = await api.get('/historical-data/analysis-workspace/export', {
+            const response = await api.get(endpoints.exportWorkspace, {
                 params: {
                     analysis_id: selectedAnalysis,
                     export_format: format,
@@ -3040,7 +3692,7 @@ export function AnalysisCenter() {
                 icon={AlertTriangle}
                 title="Não foi possível abrir as análises acadêmicas"
                 description={error}
-                action={<Button onClick={() => window.location.reload()}>Tentar novamente</Button>}
+                action={<Button onClick={() => setReloadNonce((current) => current + 1)}>Tentar novamente</Button>}
             />
         );
     }
@@ -3059,131 +3711,132 @@ export function AnalysisCenter() {
                 }}
             />
             {/* Barra de Ações Compacta e de Alta Performance (Substitui o PageHeader Duplicado) */}
-            <div className="relative z-20 flex justify-between items-center bg-white/40 border border-white/50 backdrop-blur-md px-6 py-4 rounded-[24px] shadow-soft mb-6 flex-wrap gap-4">
+            <div className="relative z-20 mb-6 flex flex-col gap-4 overflow-visible rounded-[24px] border border-border-subtle/50 bg-bg-card/40 px-4 py-4 shadow-soft backdrop-blur-md sm:px-6 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-xs font-bold text-text-primary flex items-center gap-1.5">
-                        <BarChart3 className="h-4 w-4 text-indigo-600" />
-                        Filtros de Recorte
-                    </span>
-                    <Badge variant="info">{workspace?.scope?.label}</Badge>
+                    <div className="flex items-center gap-1.5 flex-wrap text-xs font-semibold text-text-secondary">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSelectedClass(null);
+                                setSelectedStudentId(null);
+                                setSelectedAnalysis('overview');
+                                scrollToResults();
+                            }}
+                            className="hover:text-indigo-600 dark:hover:text-indigo-400 transition flex items-center gap-1.5 outline-none focus:outline-none"
+                        >
+                            <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                            Análises
+                        </button>
+
+                        {selectedAnalysis && selectedAnalysis !== 'overview' && (
+                            <>
+                                <span className="text-text-tertiary">/</span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSelectedClass(null);
+                                        setSelectedStudentId(null);
+                                    }}
+                                    className="hover:text-indigo-600 dark:hover:text-indigo-400 transition outline-none focus:outline-none"
+                                >
+                                    {analysesById.get(selectedAnalysis)?.label || selectedAnalysis}
+                                </button>
+                            </>
+                        )}
+
+                        {selectedAnalysis === 'by_class' && selectedClass && (
+                            <>
+                                <span className="text-text-tertiary">/</span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSelectedStudentId(null);
+                                    }}
+                                    className="hover:text-indigo-600 dark:hover:text-indigo-400 transition outline-none focus:outline-none"
+                                >
+                                    {formatClassLabel(selectedClass)}
+                                </button>
+                            </>
+                        )}
+
+                        {selectedStudentId !== null && (
+                            <>
+                                <span className="text-text-tertiary">/</span>
+                                <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                    {selectedStudentName || 'Carregando...'}
+                                </span>
+                            </>
+                        )}
+                    </div>
+                    <Badge variant="info" className="ml-2">{workspace?.scope?.label}</Badge>
                 </div>
-                <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex w-full flex-wrap items-center gap-3 lg:w-auto lg:justify-end">
                     {hasRecords && (
-                        <div className="relative group">
-                            <Button 
-                                variant="outline" 
-                                icon={Layers3}
-                            >
-                                Outras análises
-                            </Button>
-                            <div className="absolute right-0 top-full z-50 mt-2 w-80 translate-y-1 opacity-0 pointer-events-none transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
-                                <div className="rounded-[22px] border border-border-subtle bg-white p-3.5 shadow-card max-h-[420px] overflow-y-auto space-y-3">
-                                    {/* Visão Geral Isolada */}
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setSelectedAnalysis('overview');
-                                            scrollToResults();
-                                        }}
-                                        className={[
-                                            'w-full rounded-xl px-3 py-2.5 text-left transition-all duration-150 flex items-center gap-2',
-                                            selectedAnalysis === 'overview'
-                                                ? 'bg-indigo-50 text-indigo-700 font-semibold'
-                                                : 'text-text-secondary hover:bg-bg-secondary hover:text-text-primary'
-                                        ].join(' ')}
-                                    >
-                                        <LayoutDashboard className="h-4 w-4" />
-                                        <span className="text-[12.5px] font-semibold">Resumo Geral</span>
-                                    </button>
-
-                                    {/* Seções/Tópicos Agrupados */}
-                                    <div className="border-t border-slate-100 pt-2.5 space-y-1.5">
-                                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary px-2 mb-2">Tópicos de Análise</p>
-                                        {analysisGroups.map((group) => {
-                                            const isExpanded = activeDropdownGroup === group.id;
-                                            const groupHasActiveAnalysis = group.analysisIds.includes(selectedAnalysis);
-                                            const groupAnalyses = group.available;
-
-                                            return (
-                                                <div 
-                                                    key={group.id} 
-                                                    className="border border-slate-100/60 rounded-xl overflow-hidden bg-slate-50/20 transition-all duration-200"
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setActiveDropdownGroup(isExpanded ? null : group.id)}
-                                                        className={[
-                                                            'w-full px-3 py-2 text-left flex items-center justify-between transition-colors',
-                                                            groupHasActiveAnalysis 
-                                                                ? 'text-indigo-700 font-semibold' 
-                                                                : 'text-text-primary hover:bg-bg-secondary/40'
-                                                        ].join(' ')}
-                                                    >
-                                                        <span className="text-[12px] font-semibold flex items-center gap-1.5">
-                                                            <span className={`h-1.5 w-1.5 rounded-full ${groupHasActiveAnalysis ? 'bg-indigo-600' : 'bg-slate-400'}`} />
-                                                            {group.title}
-                                                        </span>
-                                                        {isExpanded ? (
-                                                            <ChevronDown className="h-3.5 w-3.5 text-slate-500 transition-transform duration-200 rotate-180" />
-                                                        ) : (
-                                                            <ChevronRight className="h-3.5 w-3.5 text-slate-500 transition-transform duration-200" />
-                                                        )}
-                                                    </button>
-                                                    
-                                                    {isExpanded && (
-                                                        <div className="px-2 pb-2 pt-1 border-t border-slate-100/50 bg-white space-y-1 animate-fadeIn">
-                                                            {groupAnalyses.map((item) => {
-                                                                const active = item.id === selectedAnalysis;
-                                                                return (
-                                                                    <button
-                                                                        key={item.id}
-                                                                        type="button"
-                                                                        onClick={() => {
-                                                                            setSelectedAnalysis(item.id);
-                                                                            scrollToResults();
-                                                                        }}
-                                                                        className={[
-                                                                            'w-full rounded-lg px-2.5 py-1.5 text-left transition-all duration-150 flex flex-col gap-0.5',
-                                                                            active
-                                                                                ? 'bg-indigo-50/70 text-indigo-700 font-semibold border-l-2 border-indigo-600 pl-2'
-                                                                                : 'text-text-secondary hover:bg-bg-secondary/40 hover:text-text-primary'
-                                                                        ].join(' ')}
-                                                                    >
-                                                                        <span className="text-[11.5px] font-medium">{item.label}</span>
-                                                                        {item.description && (
-                                                                            <span className="text-[9.5px] opacity-75 line-clamp-1">{item.description}</span>
-                                                                        )}
-                                                                    </button>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
+                        <>
+                            {/* Desktop: hover dropdown com largura fixa */}
+                            <div className="relative group hidden lg:block">
+                                <Button variant="outline" icon={Layers3}>
+                                    Outras análises
+                                </Button>
+                                <div className="absolute right-0 top-full z-50 mt-2 w-80 translate-y-1 opacity-0 pointer-events-none transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
+                                    <div className="rounded-[22px] border border-border-subtle bg-bg-card p-3.5 shadow-card max-h-[420px] overflow-y-auto space-y-3">
+                                        {renderAnalysesMenuContent()}
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
 
-                    {hasRecords && (
-                        <div className="relative group">
-                            <Button variant="outline" icon={Filter} aria-label="Filtros" />
-                            <div className="absolute right-0 top-full z-50 mt-2 w-[min(520px,calc(100vw-2rem))] translate-y-1 opacity-0 pointer-events-none transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
-                                <div className="rounded-[22px] border border-border-subtle bg-white p-4 shadow-card">
-                                    <div className="grid gap-4 md:grid-cols-3">
-                                        <FilterSelect label="Semestre" value={selectedSemester} onChange={setSelectedSemester} options={workspace?.filters?.semesters || []} />
-                                        <FilterSelect label="Curso" value={selectedCourse} onChange={setSelectedCourse} options={workspace?.filters?.courses || []} />
-                                        <FilterSelect label="Disciplina" value={selectedSubject} onChange={setSelectedSubject} options={workspace?.filters?.subjects || []} />
+                            {/* Mobile: clique com painel em largura total */}
+                            <div className="relative w-full lg:hidden" ref={analysesMenuRef}>
+                                <Button
+                                    variant="outline"
+                                    icon={Layers3}
+                                    className="w-full justify-center"
+                                    onClick={() => setMobileAnalysesOpen((current) => !current)}
+                                >
+                                    Outras análises
+                                </Button>
+                                {mobileAnalysesOpen && (
+                                    <div className="absolute inset-x-0 top-full z-50 mt-2">
+                                        <div className="rounded-[22px] border border-border-subtle bg-bg-card p-3.5 shadow-card max-h-[420px] overflow-y-auto space-y-3">
+                                            {renderAnalysesMenuContent()}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="relative group hidden lg:block">
+                                <Button variant="outline" icon={Filter} aria-label="Filtros" />
+                                <div className="absolute right-0 top-full z-50 mt-2 w-[min(720px,50vw)] translate-y-1 opacity-0 pointer-events-none transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
+                                    <div className="rounded-[22px] border border-border-subtle bg-bg-card p-4 shadow-card">
+                                        {renderFiltersContent()}
                                     </div>
                                 </div>
                             </div>
-                        </div>
+
+                            <div className="relative w-full lg:hidden" ref={filtersMenuRef}>
+                                <Button
+                                    variant="outline"
+                                    icon={Filter}
+                                    aria-label="Filtros"
+                                    className="w-full justify-center"
+                                    onClick={() => setMobileFiltersOpen((current) => !current)}
+                                >
+                                    Filtros
+                                </Button>
+                                {mobileFiltersOpen && (
+                                    <div className="absolute inset-x-0 top-full z-50 mt-2">
+                                        <div className="rounded-[22px] border border-border-subtle bg-bg-card p-4 shadow-card">
+                                            {renderFiltersContent()}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </>
                     )}
+
                     {workspace?.scope?.can_upload && (
-                        <Link to={historyRoute}>
-                            <Button variant="secondary" icon={Upload}>Subir novo arquivo</Button>
+                        <Link to={historyRoute} className="w-full sm:w-auto">
+                            <Button variant="secondary" icon={Upload} className="w-full justify-center sm:w-auto">Subir novo arquivo</Button>
                         </Link>
                     )}
                 </div>
@@ -3191,7 +3844,7 @@ export function AnalysisCenter() {
 
             {hasRecords && (
                 <Card>
-                    <CardHeader title="Area de exportacao" subtitle="Exporte o recorte atual em diferentes formatos." icon={Download} />
+                    <CardHeader title="Área de exportação" subtitle="Exporte o recorte atual em diferentes formatos." icon={Download} />
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap gap-3">
                             <Button variant="secondary" icon={Download} loading={exportingFormat === 'pdf'} onClick={() => handleExport('pdf')}>Exportar PDF</Button>
@@ -3206,12 +3859,18 @@ export function AnalysisCenter() {
 
             {!hasRecords ? (
                 <EmptyState
-                    icon={Upload}
-                    title={workspace?.scope?.can_upload ? 'Nenhum arquivo histórico foi analisado ainda' : 'Ainda não há base histórica disponível para este recorte'}
-                    description={workspace?.scope?.can_upload
+                    icon={isLiveMode ? BrainCircuit : Upload}
+                    title={isLiveMode
+                        ? 'Nenhum dado do Lyceum foi analisado ainda'
+                        : workspace?.scope?.can_upload
+                            ? 'Nenhum arquivo histórico foi analisado ainda'
+                            : 'Ainda não há base histórica disponível para este recorte'}
+                    description={isLiveMode
+                        ? 'Sincronize os dados do portal docente para liberar a mesma central analítica completa usando o recorte em tempo real.'
+                        : workspace?.scope?.can_upload
                         ? 'Envie um PDF ou planilha histórica para liberar as cinco análises acadêmicas do professor.'
                         : 'Quando os professores enviarem bases históricas, a coordenação poderá comparar turmas e priorizar intervenções.'}
-                    action={workspace?.scope?.can_upload ? (
+                    action={!isLiveMode && workspace?.scope?.can_upload ? (
                         <Link to={historyRoute}>
                             <Button icon={Upload}>Ir para upload histórico</Button>
                         </Link>
@@ -3224,9 +3883,8 @@ export function AnalysisCenter() {
                     <motion.div
                         ref={detailsResultRef}
                         key={selectedAnalysis}
-                        initial={{ opacity: 0, y: 12 }}
+                        initial={false}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.24 }}
                         className="space-y-6"
                     >
                         {selectedAnalysis === 'overview' && <OverviewPanel workspace={workspace} isCoordinator={isCoordinator} />}
@@ -3246,7 +3904,10 @@ export function AnalysisCenter() {
                                     loading={atRiskLoading}
                                     error={atRiskError}
                                     onSelectStudent={(student) => {
-                                        if (student?.student_id) setSelectedStudentId(student.student_id);
+                                        if (student?.student_id) {
+                                            setSelectedStudentId(student.student_id);
+                                            setSelectedStudentName(student.student_name || student.name || 'Aluno');
+                                        }
                                     }}
                                     onViewCriteria={(item) => setCriteriaModalItem(item)}
                                 />
@@ -3260,7 +3921,7 @@ export function AnalysisCenter() {
                             />
                         )}
                         {selectedAnalysis === 'by_semester' && <SemesterPanel rows={workspace.analysis_data.by_semester} />}
-                        {selectedAnalysis === 'risk_topics' && <RiskTopicsPanel rows={filteredAnalysisData?.risk_topics || workspace.analysis_data.risk_topics} />}
+                        {selectedAnalysis === 'intervention_window' && <InterventionWindowPanel rows={filteredAnalysisData?.intervention_window || workspace.analysis_data.intervention_window} />}
                         {selectedAnalysis === 'discipline_risk' && <DisciplineRiskPanel rows={workspace.analysis_data.discipline_risk} />}
                         {selectedAnalysis === 'discipline_bottlenecks' && <DisciplinePanel rows={filteredAnalysisData?.discipline_bottlenecks || workspace.analysis_data.discipline_bottlenecks} />}
                         {selectedAnalysis === 'intervention_priorities' && <PrioritiesPanel rows={workspace.analysis_data.intervention_priorities} />}

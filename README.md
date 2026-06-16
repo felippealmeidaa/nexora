@@ -1,101 +1,31 @@
-# NEXORA / SIMA
+# NEXORA
 
-Plataforma academica institucional para monitoramento, sincronizacao com portal academico, analise historica, predicao de risco e apoio a decisao para aluno, professor, coordenacao e pro-reitoria.
+Plataforma academica para monitoramento institucional com duas fontes de dados:
 
-## Visao geral
+- `dados em tempo real`: snapshot extraido do portal docente do Lyceum
+- `planilhas historicas`: base usada para treinamento, padroes e previsoes
 
-O projeto e dividido em duas partes:
+## Estrutura
 
 - `app/`: backend FastAPI
 - `frontend/`: frontend React + Vite
+- `alembic/`: migracoes
+- `tests/`: testes automatizados
+- `scratch/`: utilitarios locais de operacao
 
-Principais capacidades:
+## Perfis
 
-- autenticacao e autorizacao por papel
-- sincronizacao do aluno com o portal Lyceum
-- dashboards por perfil
-- upload e organizacao de planilhas historicas
-- central analitica com exportacao
-- leitura de risco academico com camada estatistica
+- `professor`: autentica com login do Lyceum e executa o scraper
+- `coordinator`: autentica com codigo previamente aprovado pelo admin
+- `admin`: visao institucional completa e gestao de aprovacoes de coordenadores
 
-## Stack
+## Seguranca
 
-### Backend
-
-- FastAPI
-- SQLAlchemy
-- SQLite
-- Alembic
-- Selenium
-- scikit-learn
-- pandas
-- reportlab
-
-### Frontend
-
-- React
-- Vite
-- Tailwind CSS
-- Framer Motion
-- Recharts
-- Axios
-
-## Perfis do sistema
-
-- `student`
-- `professor`
-- `coordinator`
-- `admin`
-- `viewer`
-
-No frontend, o papel `admin` aparece como `proreitor`.
-
-## Seguranca atual
-
-Esta versao ja inclui:
-
-- `SECRET_KEY` fora do codigo-fonte
-- credenciais do Lyceum armazenadas criptografadas
-- RBAC reforcado nas rotas criticas
-- CORS por lista explicita de origens
-- upload historico com validacao de extensao, tamanho e volume
-- access cookie curto + refresh token rotativo `HttpOnly`
-- revogacao de sessao atual, logout global e revogacao por dispositivo
-- migracoes com Alembic
-
-## Estrutura do repositorio
-
-```text
-app/
-  config.py
-  database.py
-  main.py
-  models/
-  routers/
-  schemas/
-  security/
-  services/
-  utils/
-frontend/
-  src/
-seed/
-tests/
-alembic/
-requirements.txt
-alembic.ini
-README.md
-DOCUMENTACAO_TECNICA.md
-```
-
-## Pre-requisitos
-
-- Python 3.11+ com `venv`
-- Node.js 18+
-- npm
-
-Para scraping com Selenium:
-
-- Google Chrome ou Microsoft Edge instalado
+- cookies de sessao + refresh rotativo
+- credenciais do Lyceum criptografadas em repouso
+- limitacao de tentativas de login
+- chaves locais persistidas em `.nexora-runtime/` para desenvolvimento
+- em producao, `SECRET_KEY` e `LYCEUM_CREDENTIALS_KEY` devem vir do ambiente
 
 ## Configuracao
 
@@ -105,168 +35,94 @@ Copie o arquivo de exemplo:
 copy .env.example .env
 ```
 
-Configure no minimo:
+Campos mais importantes:
 
 ```env
-SECRET_KEY=defina-um-segredo-forte
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nexora
+ENVIRONMENT=development
+DATABASE_URL=sqlite:///./academico.db
+SECRET_KEY=defina-um-segredo-forte-em-producao
+LYCEUM_CREDENTIALS_KEY=defina-uma-chave-separada-em-producao
+SESSION_COOKIE_SECURE=false
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-ACCESS_COOKIE_NAME=nexora_access
-REFRESH_COOKIE_NAME=nexora_refresh
-REFRESH_TOKEN_EXPIRE_DAYS=7
-SESSION_COOKIE_SAMESITE=lax
 ```
 
-Configuracoes importantes:
+Observacoes:
 
-- `AUTO_CREATE_SCHEMA=false` e o padrao recomendado (o banco e gerenciado via Alembic)
-- `SESSION_COOKIE_SECURE=true` deve ser ligado em producao HTTPS
-- `ENABLE_DEMO_BOOTSTRAP=false` por padrao
-- `CREATE_DEFAULT_ADMIN=false` por padrao
+- em desenvolvimento, se `SECRET_KEY` e `LYCEUM_CREDENTIALS_KEY` nao forem definidas, o sistema cria valores persistidos em `.nexora-runtime/`
+- em producao, o backend bloqueia a inicializacao se essas chaves nao vierem do ambiente
+- `AUTO_CREATE_SCHEMA`, `SEED_EMPTY_DATABASE`, `CREATE_DEFAULT_ADMIN` e `ENABLE_DEMO_BOOTSTRAP` nao devem ficar ligados em producao
 
-### Migração de SQLite para PostgreSQL (Opcional)
-
-Se você possuir um banco de dados legado local `academico.db` (SQLite) e desejar migrar seus dados históricos e usuários cadastrados para o PostgreSQL sem perdas, execute o script utilitário:
-
-```powershell
-.\.venv\Scripts\python.exe -m app.utils.migrate_sqlite_to_postgres
-```
-
-## Como rodar o sistema manualmente
-
-### 1. Entrar na pasta do projeto
-
-```powershell
-cd "C:\Users\guica\.gemini\antigravity\scratch\SIMA-mainn\SIMA-main"
-```
-
-### 2. Criar a virtualenv, se ainda nao existir
+## Backend
 
 ```powershell
 py -m venv .venv
-```
-
-### 3. Instalar dependencias do backend, se necessario
-
-```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-### 4. Aplicar migracoes
-
-```powershell
 .\.venv\Scripts\python.exe -m alembic upgrade head
+.\scratch\run_backend.cmd
 ```
 
-### 5. Subir o backend
+## Frontend
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
-```
-
-### 6. Em outro terminal, entrar no frontend
-
-```powershell
-cd "C:\Users\guica\.gemini\antigravity\scratch\SIMA-mainn\SIMA-main\frontend"
-```
-
-### 7. Instalar dependencias do frontend, se necessario
-
-```powershell
+cd frontend
 npm install
-```
-
-### 8. Subir o frontend
-
-```powershell
 npm run dev
 ```
 
-## Enderecos
+## Enderecos locais
 
-- Frontend: `http://localhost:5173`
-- Backend: `http://127.0.0.1:8000`
-- Swagger: `http://127.0.0.1:8000/docs`
+- frontend: `http://localhost:5173`
+- backend: `http://127.0.0.1:8000`
+- docs: `http://127.0.0.1:8000/docs`
 
-## Fluxo de autenticacao
+## Fluxo do Lyceum
 
-- o frontend nao guarda token de autenticacao em `localStorage`
-- o backend emite:
-  - access cookie curto
-  - refresh cookie `HttpOnly`
-- o frontend reidrata a sessao com `GET /api/auth/me`
-- quando recebe `401`, tenta uma renovacao automatica com `POST /api/auth/refresh`
-- o backend suporta:
-  - `POST /api/auth/logout`
-  - `POST /api/auth/logout-all`
-  - `GET /api/auth/sessions`
-  - `DELETE /api/auth/sessions/{session_identifier}`
+- o cadastro de professor valida login e senha diretamente no portal docente do Lyceum
+- apos a aprovacao, o login no NEXORA passa a usar a senha do sistema
+- a senha do Lyceum fica salva separadamente para futuras sincronizacoes do scraper
+- coordenador e admin nao executam scraper
 
-## Modo demo e bootstrap
+## Redis
 
-O modo demo nao sobe automaticamente.
-
-Se quiser ambiente demonstrativo:
+O cache Redis e opcional:
 
 ```env
-ENABLE_DEMO_BOOTSTRAP=true
-SEED_EMPTY_DATABASE=true
+REDIS_URL=redis://localhost:6379/0
+CACHE_NAMESPACE=nexora
 ```
 
-Se quiser criar admin inicial automaticamente:
+Se `REDIS_URL` nao estiver preenchida, a aplicacao usa cache local em memoria.
 
-```env
-CREATE_DEFAULT_ADMIN=true
-DEFAULT_ADMIN_PASSWORD=defina-uma-senha-forte
-```
+## Deploy recomendado
 
-## Upload historico
+Arquitetura sugerida para este projeto:
 
-Restricoes atuais:
+- `frontend`: Cloudflare Pages
+- `proxy /api`: Cloudflare Pages Functions
+- `backend + scraper + SQLite`: Oracle Cloud Always Free
 
-- extensoes aceitas: `csv`, `xls`, `xlsx`, `txt`, `pdf`
-- limite de tamanho por `MAX_UPLOAD_BYTES`
-- limite de registros por `MAX_HISTORICAL_RECORDS_PER_FILE`
-- fallback de IA controlado por `ENABLE_GEMINI_UPLOAD_FALLBACK`
+Arquivos de apoio ja incluidos no repositorio:
 
-## Scraping Lyceum
+- [GUIA_DEPLOY_ORACLE_CLOUDFLARE.md](./GUIA_DEPLOY_ORACLE_CLOUDFLARE.md)
+- [frontend/.env.example](./frontend/.env.example)
+- [deploy/oracle/.env.production.example](./deploy/oracle/.env.production.example)
+- [deploy/oracle/nexora-api.service](./deploy/oracle/nexora-api.service)
+- [deploy/oracle/nginx-nexora.conf](./deploy/oracle/nginx-nexora.conf)
+- [deploy/oracle/bootstrap_ubuntu.sh](./deploy/oracle/bootstrap_ubuntu.sh)
 
-Comportamento atual:
+Observacao importante:
 
-- usa Selenium
-- usa a senha explicita salva pelo aluno
-- fallback de senha por CPF fica desativado por padrao
-
-Para reabilitar o fallback em ambiente controlado:
-
-```env
-ALLOW_LYCEUM_CPF_PASSWORD_FALLBACK=true
-```
+- o frontend continua chamando `/api`
+- no Cloudflare Pages, a funcao `frontend/functions/api/[[path]].js` encaminha essas chamadas para a Oracle usando `API_ORIGIN`
+- isso evita quebrar a autenticacao baseada em cookies quando o frontend sair do localhost
 
 ## Testes
 
-Rodar os testes principais da API:
-
 ```powershell
-cd "C:\Users\guica\.gemini\antigravity\scratch\SIMA-mainn\SIMA-main"
-.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q
-```
-
-Build do frontend:
-
-```powershell
-cd "C:\Users\guica\.gemini\antigravity\scratch\SIMA-mainn\SIMA-main\frontend"
-npm run build
+.\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
 ## Documentacao complementar
 
 - [DOCUMENTACAO_TECNICA.md](./DOCUMENTACAO_TECNICA.md)
-
-## Proximos passos recomendados
-
-- migrar SQLite para PostgreSQL em ambiente compartilhado
-- adicionar rate limit e lockout por tentativa de login
-- adicionar cabecalhos fortes de seguranca HTTP
-- criar painel visual de gerenciamento de sessoes no frontend
-- quebrar servicos e paginas muito grandes da area analitica
+- [GUIA_REDIS_HOSTING.md](./GUIA_REDIS_HOSTING.md)

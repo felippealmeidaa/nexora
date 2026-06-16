@@ -67,7 +67,7 @@ const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
         if (payload[0]?.payload?.isSeparator) return null;
 
-        const isMediaFinal = label === 'Média Final ✨';
+        const isMediaFinal = label === 'Média Final ✨' || label === 'Média Final';
         const mediaFinalVal = isMediaFinal
             ? payload.find(p => p.dataKey === 'notaProjetada')?.value
             : null;
@@ -618,17 +618,23 @@ export function HistoricalData({ defaultTab = 'history' }) {
 
         // Determina o slot canônico (1=P1/VA1, 2=P2/VA2, 3=P3/VA3) e se é projeção
         const getEvalSlot = (key) => {
-            const kU = key.toUpperCase().replace(/\s*\(projetada\)\s*✨?/gi, '').trim();
-            if (/^(VA1|P1|AV1|N1|NOTA1)$/.test(kU)) return { slot: 1, label: 'P1 / VA1', isProj: false };
-            if (/^(VA2|P2|AV2|N2|NOTA2)$/.test(kU)) return { slot: 2, label: 'P2 / VA2', isProj: false };
-            if (/^(VA3|P3|AV3|N3|NOTA3|FINAL)$/.test(kU)) return { slot: 3, label: 'P3 / VA3', isProj: false };
-            if (/VA2.*PROJETADA|VA2.*✨/i.test(key)) return { slot: 2, label: 'P2 / VA2', isProj: true };
-            if (/VA3.*PROJETADA|VA3.*✨/i.test(key)) return { slot: 3, label: 'P3 / VA3', isProj: true };
-            // Fallback: detectar qualquer projeção genérica
-            if (/projetada|✨/i.test(key)) {
-                const kLower = key.toLowerCase();
-                if (kLower.includes('p2') || kLower.includes('va2') || kLower.includes('av2')) return { slot: 2, label: 'P2 / VA2', isProj: true };
-                if (kLower.includes('p3') || kLower.includes('va3') || kLower.includes('av3')) return { slot: 3, label: 'P3 / VA3', isProj: true };
+            const kLower = key.toLowerCase();
+            const isProj = /projetada|✨/i.test(kLower);
+            
+            // Remove marcações de projeção para normalizar a chave e determinar o slot
+            const cleanKey = key.toUpperCase()
+                .replace(/\s*\(PROJETADA\)\s*✨?/g, '')
+                .replace(/✨/g, '')
+                .trim();
+
+            if (/^(VA1|P1|AV1|N1|NOTA1)$/.test(cleanKey)) {
+                return { slot: 1, label: 'P1 / VA1', isProj };
+            }
+            if (/^(VA2|P2|AV2|N2|NOTA2)$/.test(cleanKey)) {
+                return { slot: 2, label: 'P2 / VA2', isProj };
+            }
+            if (/^(VA3|P3|AV3|N3|NOTA3|FINAL)$/.test(cleanKey)) {
+                return { slot: 3, label: 'P3 / VA3', isProj };
             }
             return null;
         };
@@ -676,8 +682,13 @@ export function HistoricalData({ defaultTab = 'history' }) {
             const realAvg = hasReal ? parseFloat((s.realSum / s.realCount).toFixed(2)) : null;
             const projAvg = hasProj ? parseFloat((s.projSum / s.projCount).toFixed(2)) : null;
 
+            let labelName = s.label;
+            if (slot === 1) labelName = hasReal ? 'VA1' : 'P1';
+            else if (slot === 2) labelName = hasReal ? 'VA2' : 'P2';
+            else if (slot === 3) labelName = hasReal ? 'VA3' : 'P3';
+
             chartData.push({
-                name: s.label,
+                name: labelName,
                 slot,
                 // Nota real tem prioridade: se P2 ja foi lancada, nao mostrar como projetada
                 notaReal: realAvg,
@@ -707,7 +718,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
 
             // Adiciona o ponto final de Média Final como destino da linha de projeção
             chartData.push({
-                name: 'Média Final ✨',
+                name: 'Média Final',
                 slot: 99,
                 notaReal: null,
                 notaProjetada: mediaFinal,
@@ -725,6 +736,14 @@ export function HistoricalData({ defaultTab = 'history' }) {
 
         return chartData;
     }, [records]);
+
+    // Identifica o último ponto no tempo que possui dados reais (para traçar a linha divisória)
+    const lastRealName = useMemo(() => {
+        if (!evolutionChartData || evolutionChartData.length === 0) return null;
+        const realPoints = evolutionChartData.filter(pt => pt.notaReal !== null && pt.name !== 'Média Final ✨');
+        if (realPoints.length === 0) return null;
+        return realPoints[realPoints.length - 1].name;
+    }, [evolutionChartData]);
 
 
     // Cálculo de distribuição de notas por faixa de rendimento
@@ -795,7 +814,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
         })).sort((a, b) => b.riskPercent - a.riskPercent);
     }, [records]);
 
-    const highlightedTopics = selectedWorkspace?.analysis_data?.risk_topics?.slice(0, 3) || [];
+    const highlightedTopics = selectedWorkspace?.analysis_data?.intervention_window?.slice(0, 3) || [];
     const highRiskClasses = selectedWorkspace?.analysis_data?.high_risk_classes?.slice(0, 3) || [];
     
     // Algoritmo de fallback para identificar e destacar a pior turma caso nenhuma esteja em alto risco
@@ -881,9 +900,15 @@ export function HistoricalData({ defaultTab = 'history' }) {
     }, [highRiskClasses, worstClassByGrade]);
 
     const displayedHighlightedTopics = useMemo(() => {
-        const hasRiskTopics = highlightedTopics.some(t => t.risk_score >= 0.38);
+        const hasRiskTopics = highlightedTopics.some(t => t.current_risk >= 0.38);
         if (hasRiskTopics) {
-            return highlightedTopics;
+            return highlightedTopics.map(item => ({
+                id: item.id,
+                type: 'Alerta de Risco',
+                label: item.student_name,
+                signal: `Aluno em zona ${item.zone_label} com risco de ${item.risk_pct}%.`,
+                is_fallback: false
+            }));
         }
         if (worstClassByGrade) {
             return [
@@ -1211,19 +1236,20 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                         key={sheet.id}
                                                         whileHover={{ y: -4 }}
                                                         onClick={() => handleSelectSpreadsheet(sheet)}
-                                                        className="cursor-pointer flex flex-col rounded-[26px] border-2 border-indigo-100 bg-gradient-to-br from-indigo-50/20 to-white p-5 shadow-soft hover:bg-white hover:border-indigo-400 hover:shadow-indigo-100/50 transition-all group relative overflow-hidden"
+                                                        className="cursor-pointer flex flex-col rounded-[26px] border-2 border-indigo-100 dark:border-indigo-900/40 bg-gradient-to-br from-indigo-50/20 to-white dark:from-indigo-950/10 dark:to-bg-card p-5 shadow-soft hover:bg-white dark:hover:bg-bg-card-hover hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-indigo-100/50 dark:hover:shadow-none transition-all group relative overflow-hidden"
                                                     >
                                                         <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[8px] font-bold px-2 py-0.5 rounded-bl-lg flex items-center gap-0.5">
                                                             <span>✨ IA Preditiva</span>
                                                         </div>
                                                         <div className="flex items-start justify-between gap-3">
-                                                            <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600`}>
+                                                            <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/45 dark:text-indigo-400`}>
                                                                 <FileSpreadsheet className="h-5 w-5" />
                                                             </div>
                                                             <button
                                                                 onClick={(e) => handleDeleteSpreadsheet(sheet.id, e)}
                                                                 className="p-2 text-text-tertiary hover:text-danger hover:bg-danger/5 rounded-xl transition mr-8"
                                                                 title="Excluir arquivo"
+                                                                aria-label="Excluir"
                                                             >
                                                                 <Trash2 className="h-4 w-4" />
                                                             </button>
@@ -1238,7 +1264,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                         <div className="mt-4 flex items-center gap-1.5 flex-wrap">
                                                             <Badge variant="neutral">{sheet.semester || 'Semestre N/A'}</Badge>
                                                             <Badge variant="neutral" className="line-clamp-1 max-w-[120px]">{sheet.course_name || 'Geral'}</Badge>
-                                                            <Badge variant="neutral" className="bg-indigo-50 text-indigo-700 border-indigo-200">Em Andamento</Badge>
+                                                            <Badge variant="neutral" className="bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-900/65">Em Andamento</Badge>
                                                         </div>
                                                         <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border-subtle pt-3 text-[10px] text-text-secondary">
                                                             <div>
@@ -1276,11 +1302,13 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                     key={sheet.id}
                                                     whileHover={{ y: -4 }}
                                                     onClick={() => handleSelectSpreadsheet(sheet)}
-                                                    className="cursor-pointer flex flex-col rounded-[26px] border border-border-subtle bg-white/70 p-5 shadow-soft hover:bg-white hover:border-indigo-200 transition-all group"
+                                                    className="cursor-pointer flex flex-col rounded-[26px] border border-border-subtle bg-bg-card/70 p-5 shadow-soft hover:bg-bg-card hover:border-indigo-200 dark:hover:border-indigo-900/60 transition-all group"
                                                 >
                                                     <div className="flex items-start justify-between gap-3">
                                                         <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
-                                                            isPdf ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
+                                                            isPdf 
+                                                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/45 dark:text-rose-400' 
+                                                                : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/45 dark:text-emerald-400'
                                                         }`}>
                                                             <FileSpreadsheet className="h-5 w-5" />
                                                         </div>
@@ -1288,6 +1316,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                             onClick={(e) => handleDeleteSpreadsheet(sheet.id, e)}
                                                             className="p-2 text-text-tertiary hover:text-danger hover:bg-danger/5 rounded-xl transition"
                                                             title="Excluir arquivo"
+                                                            aria-label="Excluir"
                                                         >
                                                             <Trash2 className="h-4 w-4" />
                                                         </button>
@@ -1302,7 +1331,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                     <div className="mt-4 flex items-center gap-1.5 flex-wrap">
                                                         <Badge variant="neutral">{sheet.semester || 'Semestre N/A'}</Badge>
                                                         <Badge variant="neutral" className="line-clamp-1 max-w-[120px]">{sheet.course_name || 'Geral'}</Badge>
-                                                        <Badge variant="neutral" className="bg-emerald-50 text-emerald-700 border-emerald-200">Concluído</Badge>
+                                                        <Badge variant="neutral" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/65">Concluído</Badge>
                                                     </div>
                                                     <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border-subtle pt-3 text-[10px] text-text-secondary">
                                                         <div>
@@ -1410,7 +1439,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                 className={`flex-1 text-center py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
                                                     analysisTab === 'overview'
                                                         ? 'bg-indigo-600 text-white shadow-soft'
-                                                        : 'text-text-secondary hover:text-text-primary hover:bg-white/50'
+                                                        : 'text-text-secondary hover:text-text-primary hover:bg-white/50 dark:hover:bg-bg-card/50'
                                                 }`}
                                             >
                                                 Visão Geral &amp; Alertas
@@ -1421,7 +1450,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                 className={`flex-1 text-center py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
                                                     analysisTab === 'predictions'
                                                         ? 'bg-violet-600 text-white shadow-soft'
-                                                        : 'text-text-secondary hover:text-text-primary hover:bg-white/50'
+                                                        : 'text-text-secondary hover:text-text-primary hover:bg-white/50 dark:hover:bg-bg-card/50'
                                                 }`}
                                             >
                                                 Análises Preditivas ✨
@@ -1432,7 +1461,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                 className={`flex-1 text-center py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
                                                     analysisTab === 'students'
                                                         ? 'bg-indigo-600 text-white shadow-soft'
-                                                        : 'text-text-secondary hover:text-text-primary hover:bg-white/50'
+                                                        : 'text-text-secondary hover:text-text-primary hover:bg-white/50 dark:hover:bg-bg-card/50'
                                                 }`}
                                             >
                                                 Turmas &amp; Alunos ({records.length})
@@ -1551,7 +1580,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                     {/* CARD DE DIAGNÓSTICO PEDAGÓGICO PREVENTIVO ✨ */}
                                                     {preventiveStats && (
                                                         <div className="col-span-1 sm:col-span-2 mt-2">
-                                                            <Card variant="hero" className="border-indigo-100 bg-gradient-to-br from-white via-slate-50/50 to-indigo-50/10 shadow-soft">
+                                                            <Card variant="hero" className="border-indigo-100 dark:border-indigo-950/40 bg-gradient-to-br from-white via-slate-50/50 to-indigo-50/10 dark:from-bg-card dark:via-bg-card dark:to-indigo-950/10 shadow-soft">
                                                                 <div className="p-6">
                                                                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-border-subtle/50 pb-5">
                                                                         <div className="flex items-center gap-3">
@@ -1560,7 +1589,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                             </div>
                                                                             <div>
                                                                                 <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
-                                                                                    Diagnóstico Pedagógico Preventivo <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-semibold">IA Integrada</span>
+                                                                                    Diagnóstico Pedagógico Preventivo <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded-full font-semibold">IA Integrada</span>
                                                                                 </h3>
                                                                                 <p className="text-[11px] text-text-secondary mt-0.5">
                                                                                     Mapeamento em tempo real de vulnerabilidades acadêmicas da turma
@@ -1581,16 +1610,16 @@ export function HistoricalData({ defaultTab = 'history' }) {
 
                                                                     {/* KPIs Principais de Risco */}
                                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-                                                                        <div className="p-4 rounded-2xl border border-red-100 bg-red-50/30 flex items-start gap-3.5 transition-all hover:shadow-soft">
+                                                                        <div className="p-4 rounded-2xl border border-red-100 dark:border-red-950/30 bg-red-50/30 dark:bg-red-950/15 flex items-start gap-3.5 transition-all hover:shadow-soft">
                                                                             <div className="h-9 w-9 rounded-xl bg-red-100 flex items-center justify-center text-red-600 shrink-0 shadow-sm">
                                                                                 <AlertCircle className="h-5 w-5" />
                                                                             </div>
                                                                             <div className="space-y-1">
-                                                                                <p className="text-[10px] font-semibold text-red-800/80 uppercase tracking-wider">
+                                                                                <p className="text-[10px] font-semibold text-red-800/80 dark:text-red-400/80 uppercase tracking-wider">
                                                                                     Taxa de Reprovação Projetada
                                                                                 </p>
-                                                                                <p className="text-xl font-black text-red-700">
-                                                                                    {preventiveStats.reprovacaoProjetadaPct}% <span className="text-[10px] font-medium text-red-600/70">(Sem Intervenção)</span>
+                                                                                <p className="text-xl font-black text-red-700 dark:text-red-400">
+                                                                                    {preventiveStats.reprovacaoProjetadaPct}% <span className="text-[10px] font-medium text-red-600/70 dark:text-red-400/60">(Sem Intervenção)</span>
                                                                                 </p>
                                                                                 <p className="text-[11px] text-text-secondary leading-4">
                                                                                     Fração estimada da turma em situação de risco preventivo imediato (nota baixa ou baixa frequência).
@@ -1598,16 +1627,16 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                             </div>
                                                                         </div>
 
-                                                                        <div className="p-4 rounded-2xl border border-amber-100 bg-amber-50/20 flex items-start gap-3.5 transition-all hover:shadow-soft">
+                                                                        <div className="p-4 rounded-2xl border border-amber-100 dark:border-amber-950/30 bg-amber-50/20 dark:bg-amber-950/15 flex items-start gap-3.5 transition-all hover:shadow-soft">
                                                                             <div className="h-9 w-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0 shadow-sm">
                                                                                 <BarChart3 className="h-5 w-5" />
                                                                             </div>
                                                                             <div className="space-y-1">
-                                                                                <p className="text-[10px] font-semibold text-amber-800/80 uppercase tracking-wider">
+                                                                                <p className="text-[10px] font-semibold text-amber-800/80 dark:text-amber-400/80 uppercase tracking-wider">
                                                                                     Gargalo de Assiduidade (Comportamental)
                                                                                 </p>
-                                                                                <p className="text-xl font-black text-amber-700">
-                                                                                    {preventiveStats.correlacaoFaltaNotaPct}% <span className="text-[10px] font-medium text-amber-600/70">(Faltas vs Notas)</span>
+                                                                                <p className="text-xl font-black text-amber-700 dark:text-amber-400">
+                                                                                    {preventiveStats.correlacaoFaltaNotaPct}% <span className="text-[10px] font-medium text-amber-600/70 dark:text-amber-400/60">(Faltas vs Notas)</span>
                                                                                 </p>
                                                                                 <p className="text-[11px] text-text-secondary leading-4">
                                                                                     Dos alunos com frequência abaixo de 75%, esta é a proporção que também registra notas vermelhas (&lt; 6.0).
@@ -1617,8 +1646,8 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                     </div>
 
                                                                     {/* Tabela de Quadrantes */}
-                                                                    <div className="mt-6 border border-border-subtle rounded-2xl overflow-hidden bg-white/50 backdrop-blur-sm">
-                                                                        <div className="px-4 py-3 bg-slate-50 border-b border-border-subtle flex justify-between items-center text-xs">
+                                                                    <div className="mt-6 border border-border-subtle rounded-2xl overflow-hidden bg-white/50 dark:bg-bg-card backdrop-blur-sm">
+                                                                        <div className="px-4 py-3 bg-slate-50 dark:bg-bg-secondary border-b border-border-subtle flex justify-between items-center text-xs">
                                                                             <h4 className="text-[11px] font-bold text-text-primary uppercase tracking-wider">
                                                                                 Distribuição por Quadrantes de Monitoramento
                                                                             </h4>
@@ -1627,93 +1656,96 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                             </span>
                                                                         </div>
                                                                         <div className="divide-y divide-border-subtle text-xs">
-                                                                            {/* Aprovação Provável */}
-                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60">
+                                                                            {/* Sem Risco */}
+                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60 dark:hover:bg-bg-secondary/40">
                                                                                 <div className="flex items-center gap-2.5 min-w-[200px]">
                                                                                     <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-sm shrink-0" />
                                                                                     <div className="space-y-0.5">
-                                                                                        <p className="font-bold text-text-primary">Aprovação Provável</p>
+                                                                                        <p className="font-bold text-text-primary">Sem Risco</p>
                                                                                         <p className="text-[10px] text-text-secondary">Média ≥ 6.0 e Presença ≥ 75%</p>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="flex-1 max-w-xs bg-slate-100 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
+                                                                                <div className="flex-1 max-w-xs bg-slate-100 dark:bg-slate-800/80 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
                                                                                     <div 
                                                                                         className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
                                                                                         style={{ width: `${(preventiveStats.aprovados / preventiveStats.total) * 100}%` }}
                                                                                     />
                                                                                 </div>
                                                                                 <div className="text-right min-w-[80px]">
-                                                                                    <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full text-[11px]">
+                                                                                    <Badge variant="success">
                                                                                         {preventiveStats.aprovados} ({((preventiveStats.aprovados / preventiveStats.total) * 100).toFixed(1)}%)
-                                                                                    </span>
+                                                                                    </Badge>
                                                                                 </div>
                                                                             </div>
 
-                                                                            {/* Risco por Nota */}
-                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60">
+                                                                            {/* Risco de Reprovação por Nota */}
+                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60 dark:hover:bg-bg-secondary/40">
                                                                                 <div className="flex items-center gap-2.5 min-w-[200px]">
                                                                                     <span className="h-2.5 w-2.5 rounded-full bg-amber-500 shadow-sm shrink-0" />
                                                                                     <div className="space-y-0.5">
-                                                                                        <p className="font-bold text-text-primary">Risco por Nota</p>
+                                                                                        <p className="font-bold text-text-primary">Risco de Reprovação por Nota</p>
                                                                                         <p className="text-[10px] text-text-secondary">Média &lt; 6.0 e Presença ≥ 75%</p>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="flex-1 max-w-xs bg-slate-100 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
+                                                                                <div className="flex-1 max-w-xs bg-slate-100 dark:bg-slate-800/80 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
                                                                                     <div 
                                                                                         className="bg-amber-500 h-full rounded-full transition-all duration-500" 
                                                                                         style={{ width: `${(preventiveStats.riscoNota / preventiveStats.total) * 100}%` }}
                                                                                     />
                                                                                 </div>
                                                                                 <div className="text-right min-w-[80px]">
-                                                                                    <span className="font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full text-[11px]">
+                                                                                    <Badge variant="warning">
                                                                                         {preventiveStats.riscoNota} ({((preventiveStats.riscoNota / preventiveStats.total) * 100).toFixed(1)}%)
-                                                                                    </span>
+                                                                                    </Badge>
                                                                                 </div>
                                                                             </div>
 
-                                                                            {/* Risco por Falta */}
-                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60">
+                                                                            {/* Risco de Reprovação por Presença */}
+                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60 dark:hover:bg-bg-secondary/40">
                                                                                 <div className="flex items-center gap-2.5 min-w-[200px]">
                                                                                     <span className="h-2.5 w-2.5 rounded-full bg-orange-500 shadow-sm shrink-0" />
                                                                                     <div className="space-y-0.5">
-                                                                                        <p className="font-bold text-text-primary">Risco por Falta</p>
+                                                                                        <p className="font-bold text-text-primary">Risco de Reprovação por Presença</p>
                                                                                         <p className="text-[10px] text-text-secondary">Média ≥ 6.0 e Presença &lt; 75%</p>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="flex-1 max-w-xs bg-slate-100 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
+                                                                                <div className="flex-1 max-w-xs bg-slate-100 dark:bg-slate-800/80 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
                                                                                     <div 
                                                                                         className="bg-orange-500 h-full rounded-full transition-all duration-500" 
                                                                                         style={{ width: `${(preventiveStats.riscoFalta / preventiveStats.total) * 100}%` }}
                                                                                     />
                                                                                 </div>
                                                                                 <div className="text-right min-w-[80px]">
-                                                                                    <span className="font-bold text-orange-700 bg-orange-50 px-2.5 py-1 rounded-full text-[11px]">
+                                                                                    <Badge 
+                                                                                        variant="warning"
+                                                                                        className="bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-950/35 dark:text-orange-300 dark:border-orange-900/40"
+                                                                                    >
                                                                                         {preventiveStats.riscoFalta} ({((preventiveStats.riscoFalta / preventiveStats.total) * 100).toFixed(1)}%)
-                                                                                    </span>
+                                                                                    </Badge>
                                                                                 </div>
                                                                             </div>
 
                                                                             {/* Risco Crítico */}
-                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60">
+                                                                            <div className="px-4 py-3 flex items-center justify-between gap-4 transition-all hover:bg-slate-50/60 dark:hover:bg-bg-secondary/40">
                                                                                 <div className="flex items-center gap-2.5 min-w-[200px]">
                                                                                     <span className="h-2.5 w-2.5 rounded-full bg-red-600 shadow-sm shrink-0 animate-pulse" />
                                                                                     <div className="space-y-0.5">
                                                                                         <p className="font-bold text-text-primary flex items-center gap-1.5">
-                                                                                            Risco Crítico (Ambos)
+                                                                                            Risco Crítico (Nota e Presença)
                                                                                         </p>
                                                                                         <p className="text-[10px] text-text-secondary">Média &lt; 6.0 e Presença &lt; 75%</p>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="flex-1 max-w-xs bg-slate-100 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
+                                                                                <div className="flex-1 max-w-xs bg-slate-100 dark:bg-slate-800/80 h-2 rounded-full overflow-hidden shrink-0 hidden md:block">
                                                                                     <div 
                                                                                         className="bg-red-600 h-full rounded-full transition-all duration-500" 
                                                                                         style={{ width: `${(preventiveStats.riscoAmbos / preventiveStats.total) * 100}%` }}
                                                                                     />
                                                                                 </div>
                                                                                 <div className="text-right min-w-[80px]">
-                                                                                    <span className="font-bold text-red-700 bg-red-50 px-2.5 py-1 rounded-full text-[11px]">
+                                                                                    <Badge variant="danger">
                                                                                         {preventiveStats.riscoAmbos} ({((preventiveStats.riscoAmbos / preventiveStats.total) * 100).toFixed(1)}%)
-                                                                                    </span>
+                                                                                    </Badge>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
@@ -1838,6 +1870,22 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                                 <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
                                                                                 <YAxis domain={[0, 10]} ticks={[0, 2, 4, 6, 8, 10]} stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
                                                                                 <Tooltip content={<CustomTooltip />} cursor={false} />
+                                                                                {lastRealName && (
+                                                                                    <ReferenceLine 
+                                                                                        x={lastRealName} 
+                                                                                        stroke="#8b5cf6" 
+                                                                                        strokeWidth={1.5} 
+                                                                                        strokeDasharray="4 4"
+                                                                                        label={{ 
+                                                                                            value: 'Transição Real ➔ Projeção (IA) 🔮', 
+                                                                                            position: 'insideTopLeft', 
+                                                                                            fill: '#8b5cf6', 
+                                                                                            fontSize: 9,
+                                                                                            fontWeight: 'bold',
+                                                                                            offset: 8
+                                                                                        }} 
+                                                                                    />
+                                                                                )}
                                                                                 <Legend 
                                                                                     verticalAlign="top" 
                                                                                     height={36} 
@@ -1896,7 +1944,6 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                                     <th className="p-3.5 text-center">Média</th>
                                                                                     {preventiveStats?.hasAttendanceData && <th className="p-3.5 text-center">Presença</th>}
                                                                                     <th className="p-3.5 text-center">Quadrante Preventivo</th>
-                                                                                    <th className="p-3.5 text-center">Ações</th>
                                                                                 </tr>
                                                                             </thead>
                                                                             <tbody className="divide-y divide-border-subtle">
@@ -1906,17 +1953,17 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                                     const isNotaVermelha = grade < 6.0;
                                                                                     const isPresencaBaixa = preventiveStats?.hasAttendanceData && att !== null && att < 75.0;
 
-                                                                                    let quadranteLabel = "Aprovação Provável";
+                                                                                    let quadranteLabel = "Sem Risco";
                                                                                     let quadranteVariant = "success";
 
                                                                                     if (isNotaVermelha && isPresencaBaixa) {
-                                                                                        quadranteLabel = "Risco Crítico (Ambos)";
+                                                                                        quadranteLabel = "Risco Crítico (Nota e Presença)";
                                                                                         quadranteVariant = "danger";
                                                                                     } else if (isNotaVermelha && !isPresencaBaixa) {
-                                                                                        quadranteLabel = "Risco por Nota";
+                                                                                        quadranteLabel = "Risco de Reprovação por Nota";
                                                                                         quadranteVariant = "warning";
                                                                                     } else if (!isNotaVermelha && isPresencaBaixa) {
-                                                                                        quadranteLabel = "Risco por Falta";
+                                                                                        quadranteLabel = "Risco de Reprovação por Presença";
                                                                                         quadranteVariant = "info";
                                                                                     }
 
@@ -1940,16 +1987,6 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                                                 <Badge variant={quadranteVariant}>
                                                                                                     {quadranteLabel}
                                                                                                 </Badge>
-                                                                                            </td>
-                                                                                            <td className="p-3.5 text-center">
-                                                                                                <Button
-                                                                                                    size="xs"
-                                                                                                    variant="secondary"
-                                                                                                    icon={Sparkles}
-                                                                                                    onClick={() => setSelectedStudentId(r.student_id || r.id)}
-                                                                                                >
-                                                                                                    Ver Trajetória ✨
-                                                                                                </Button>
                                                                                             </td>
                                                                                         </tr>
                                                                                     );
@@ -1986,22 +2023,22 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                             <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
                                                                 <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-center flex flex-col items-center gap-1">
                                                                     <span className="text-2xl font-black text-emerald-700">{preventiveStats.aprovados}</span>
-                                                                    <span className="text-[11px] font-semibold text-emerald-800/70 uppercase tracking-wide">Aprovação Provável</span>
+                                                                    <span className="text-[11px] font-semibold text-emerald-800/70 uppercase tracking-wide">Sem Risco</span>
                                                                     <span className="text-[10px] text-text-secondary">{preventiveStats.total > 0 ? ((preventiveStats.aprovados / preventiveStats.total) * 100).toFixed(1) : 0}% da turma</span>
                                                                 </div>
                                                                 <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 text-center flex flex-col items-center gap-1">
                                                                     <span className="text-2xl font-black text-amber-700">{preventiveStats.riscoNota}</span>
-                                                                    <span className="text-[11px] font-semibold text-amber-800/70 uppercase tracking-wide">Risco por Nota</span>
+                                                                    <span className="text-[11px] font-semibold text-amber-800/70 uppercase tracking-wide">Risco de Reprovação por Nota</span>
                                                                     <span className="text-[10px] text-text-secondary">Nota abaixo de 6.0</span>
                                                                 </div>
                                                                 <div className="rounded-2xl bg-orange-50 border border-orange-100 p-4 text-center flex flex-col items-center gap-1">
                                                                     <span className="text-2xl font-black text-orange-700">{preventiveStats.riscoFalta}</span>
-                                                                    <span className="text-[11px] font-semibold text-orange-800/70 uppercase tracking-wide">Risco por Falta</span>
+                                                                    <span className="text-[11px] font-semibold text-orange-800/70 uppercase tracking-wide">Risco de Reprovação por Presença</span>
                                                                     <span className="text-[10px] text-text-secondary">Frequência abaixo de 75%</span>
                                                                 </div>
                                                                 <div className="rounded-2xl bg-red-50 border border-red-100 p-4 text-center flex flex-col items-center gap-1">
                                                                     <span className="text-2xl font-black text-red-700">{preventiveStats.riscoAmbos}</span>
-                                                                    <span className="text-[11px] font-semibold text-red-800/70 uppercase tracking-wide">Risco Duplo</span>
+                                                                    <span className="text-[11px] font-semibold text-red-800/70 uppercase tracking-wide">Risco Crítico (Nota e Presença)</span>
                                                                     <span className="text-[10px] text-text-secondary">Nota E frequência baixas</span>
                                                                 </div>
                                                             </div>
@@ -2019,7 +2056,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                     )}
                                                                 </div>
                                                                 <div className="flex justify-between text-[10px] text-text-secondary mt-1.5">
-                                                                    <span className="text-emerald-700 font-semibold">✅ Aprovação Provável</span>
+                                                                    <span className="text-emerald-700 font-semibold">✅ Sem Risco</span>
                                                                     <span className="text-red-700 font-semibold">⚠️ Em Risco ({(+preventiveStats.reprovacaoProjetadaPct).toFixed(1)}%)</span>
                                                                 </div>
                                                             </div>
@@ -2042,6 +2079,22 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                                             <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
                                                                             <YAxis domain={[0, 10]} ticks={[0, 2, 4, 6, 8, 10]} stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
                                                                             <ReferenceLine y={6} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: 'Mín. Aprovação', position: 'insideTopRight', fontSize: 9, fill: '#ef4444' }} />
+                                                                            {lastRealName && (
+                                                                                <ReferenceLine 
+                                                                                    x={lastRealName} 
+                                                                                    stroke="#8b5cf6" 
+                                                                                    strokeWidth={1.5} 
+                                                                                    strokeDasharray="4 4"
+                                                                                    label={{ 
+                                                                                        value: 'Transição Real ➔ Projeção (IA) 🔮', 
+                                                                                        position: 'insideTopLeft', 
+                                                                                        fill: '#8b5cf6', 
+                                                                                        fontSize: 9,
+                                                                                        fontWeight: 'bold',
+                                                                                        offset: 8
+                                                                                    }} 
+                                                                                />
+                                                                            )}
                                                                             <Tooltip content={<CustomTooltip />} cursor={false} />
                                                                             <Legend verticalAlign="top" height={36} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontWeight: 500 }} />
                                                                             <Line type="monotone" dataKey="notaReal" stroke="#0ea5e9" strokeWidth={3} dot={{ stroke: '#0ea5e9', strokeWidth: 2, fill: '#fff', r: 4 }} activeDot={{ r: 6, strokeWidth: 0, fill: '#0ea5e9' }} name="Média Real da Turma" connectNulls />
@@ -2126,53 +2179,98 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                         <Card>
                                                             <CardHeader
                                                                 title="Correlação Frequência x Desempenho"
-                                                                subtitle="Distribuição dos alunos por faixa de presença e sua média de notas correspondente"
+                                                                subtitle="Análise comparativa do rendimento escolar com base na assiduidade do estudante"
                                                                 icon={BarChart3}
                                                             />
-                                                            <div className="p-5 bg-white/70">
+                                                            <div className="p-5 bg-white/70 dark:bg-bg-card/70">
                                                                 {(() => {
-                                                                    const attBands = [
-                                                                        { label: '< 50%', min: 0, max: 50, color: '#ef4444' },
-                                                                        { label: '50-64%', min: 50, max: 65, color: '#f97316' },
-                                                                        { label: '65-74%', min: 65, max: 75, color: '#f59e0b' },
-                                                                        { label: '75-84%', min: 75, max: 85, color: '#84cc16' },
-                                                                        { label: '85-94%', min: 85, max: 95, color: '#22c55e' },
-                                                                        { label: '≥ 95%', min: 95, max: 101, color: '#0ea5e9' },
-                                                                    ];
-                                                                    const bandData = attBands.map(band => {
-                                                                        const filtered = records.filter(r => {
-                                                                            const att = r.attendance !== null && r.attendance !== undefined ? parseFloat(r.attendance) : null;
-                                                                            return att !== null && att >= band.min && att < band.max;
-                                                                        });
-                                                                        const avgGrade = filtered.length > 0
-                                                                            ? parseFloat((filtered.reduce((s, r) => s + (r.grade_average !== null && r.grade_average !== undefined ? parseFloat(r.grade_average) : 7), 0) / filtered.length).toFixed(2))
-                                                                            : null;
-                                                                        return { label: band.label, avgGrade, count: filtered.length, color: band.color };
-                                                                    }).filter(b => b.count > 0);
+                                                                    const alunosAssiduos = records.filter(r => {
+                                                                        const att = r.attendance !== null && r.attendance !== undefined ? parseFloat(r.attendance) : null;
+                                                                        return att !== null && att >= 75.0;
+                                                                    });
+                                                                    const alunosInfrequentes = records.filter(r => {
+                                                                        const att = r.attendance !== null && r.attendance !== undefined ? parseFloat(r.attendance) : null;
+                                                                        return att !== null && att < 75.0;
+                                                                    });
 
-                                                                    return bandData.length > 0 ? (
-                                                                        <div className="h-48">
-                                                                            <ResponsiveContainer width="100%" height="100%">
-                                                                                <BarChart data={bandData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                                                                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                                                                    <XAxis dataKey="label" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
-                                                                                    <YAxis domain={[0, 10]} ticks={[0, 4, 6, 8, 10]} stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
-                                                                                    <ReferenceLine y={6} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1.5} />
-                                                                                    <Tooltip content={<CustomTooltip />} cursor={false} />
-                                                                                    <Bar dataKey="avgGrade" name="Média de Nota" radius={[8, 8, 0, 0]} maxBarSize={60}>
-                                                                                        {bandData.map((entry, index) => (
-                                                                                            <Cell key={`cell-att-${index}`} fill={entry.color} fillOpacity={0.85} />
-                                                                                        ))}
-                                                                                    </Bar>
-                                                                                </BarChart>
-                                                                            </ResponsiveContainer>
+                                                                    const mediaAssiduos = alunosAssiduos.length > 0
+                                                                        ? (alunosAssiduos.reduce((sum, r) => sum + (r.grade_average !== null && r.grade_average !== undefined ? parseFloat(r.grade_average) : 7.0), 0) / alunosAssiduos.length)
+                                                                        : null;
+
+                                                                    const mediaInfrequentes = alunosInfrequentes.length > 0
+                                                                        ? (alunosInfrequentes.reduce((sum, r) => sum + (r.grade_average !== null && r.grade_average !== undefined ? parseFloat(r.grade_average) : 7.0), 0) / alunosInfrequentes.length)
+                                                                        : null;
+
+                                                                    const temDados = records.some(r => r.attendance !== null && r.attendance !== undefined);
+
+                                                                    return temDados ? (
+                                                                        <div className="space-y-5">
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                                                {/* Grupo Assíduo */}
+                                                                                <div className="p-4 rounded-2xl border border-emerald-100 dark:border-emerald-950/35 bg-emerald-50/20 dark:bg-emerald-950/15 flex flex-col justify-between gap-3 shadow-sm">
+                                                                                    <div className="flex items-center justify-between">
+                                                                                        <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider">
+                                                                                            Alunos Assíduos (≥ 75%)
+                                                                                        </span>
+                                                                                        <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold">
+                                                                                            {alunosAssiduos.length} Alunos
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="flex items-baseline gap-2">
+                                                                                        <span className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
+                                                                                            {mediaAssiduos !== null ? mediaAssiduos.toFixed(2) : '--'}
+                                                                                        </span>
+                                                                                        <span className="text-[11px] text-text-secondary">Média de Notas</span>
+                                                                                    </div>
+                                                                                    <p className="text-[11px] text-text-secondary leading-relaxed">
+                                                                                        Estudantes com presença estável e dentro da recomendação institucional apresentam melhor absorção de conteúdo e rendimento.
+                                                                                    </p>
+                                                                                </div>
+
+                                                                                {/* Grupo Infrequente */}
+                                                                                <div className="p-4 rounded-2xl border border-orange-100 dark:border-orange-950/35 bg-orange-50/20 dark:bg-orange-950/15 flex flex-col justify-between gap-3 shadow-sm">
+                                                                                    <div className="flex items-center justify-between">
+                                                                                        <span className="text-[10px] font-bold text-orange-800 dark:text-orange-400 uppercase tracking-wider">
+                                                                                            Faltas Excessivas (&lt; 75%)
+                                                                                        </span>
+                                                                                        <span className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 px-2 py-0.5 rounded-full font-bold">
+                                                                                            {alunosInfrequentes.length} Alunos
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="flex items-baseline gap-2">
+                                                                                        <span className="text-3xl font-black text-orange-600 dark:text-orange-400">
+                                                                                            {mediaInfrequentes !== null ? mediaInfrequentes.toFixed(2) : '--'}
+                                                                                        </span>
+                                                                                        <span className="text-[11px] text-text-secondary">Média de Notas</span>
+                                                                                    </div>
+                                                                                    <p className="text-[11px] text-text-secondary leading-relaxed">
+                                                                                        A infrequência excessiva é o principal indicador comportamental associado à queda de desempenho e risco de reprovação.
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {/* Barra de comparação visual */}
+                                                                            {mediaAssiduos !== null && mediaInfrequentes !== null && (
+                                                                                <div className="p-3.5 rounded-xl bg-bg-secondary/40 dark:bg-bg-secondary border border-border-subtle text-xs space-y-2">
+                                                                                    <div className="flex justify-between items-center text-[10px] text-text-secondary uppercase tracking-wider font-semibold">
+                                                                                        <span>Diferença de Desempenho</span>
+                                                                                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                                                                            +{(mediaAssiduos - mediaInfrequentes).toFixed(2)} pontos para alunos assíduos
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="flex h-3 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800 gap-px">
+                                                                                        <div className="bg-emerald-500 transition-all" style={{ width: `${(mediaAssiduos / (mediaAssiduos + mediaInfrequentes)) * 100}%` }} title={`Assíduos: ${mediaAssiduos.toFixed(1)}`} />
+                                                                                        <div className="bg-orange-500 transition-all" style={{ width: `${(mediaInfrequentes / (mediaAssiduos + mediaInfrequentes)) * 100}%` }} title={`Infrequentes: ${mediaInfrequentes.toFixed(1)}`} />
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     ) : (
-                                                                        <p className="py-4 text-center text-xs text-text-secondary">Dados de frequência insuficientes para gerar o gráfico.</p>
+                                                                        <p className="py-4 text-center text-xs text-text-secondary">Dados de frequência insuficientes para gerar a análise.</p>
                                                                     );
                                                                 })()}
-                                                                <p className="mt-2 text-[10px] text-text-secondary italic">
-                                                                    Cada barra representa a média de notas dos alunos em cada faixa de presença. Barras abaixo da linha vermelha (≥ 6.0) indicam risco crítico por assiduidade.
+                                                                <p className="mt-4 text-[10px] text-text-secondary italic">
+                                                                    A análise compara o rendimento médio dos alunos que cumprem a frequência mínima regulamentar (75%) em relação aos alunos infrequentes sob risco de reprovação.
                                                                 </p>
                                                             </div>
                                                         </Card>
@@ -2304,9 +2402,9 @@ export function HistoricalData({ defaultTab = 'history' }) {
 
                                     {/* COLUNA DIREITA: PAINEL INTEGRADO DO CHAT DE IA */}
                                     <div className="flex flex-col">
-                                        <Card className="flex flex-col h-[650px] bg-white border border-border-subtle rounded-3xl overflow-hidden shadow-medium">
+                                        <Card className="flex flex-col h-[650px] bg-bg-card border border-border-subtle rounded-3xl overflow-hidden shadow-medium">
                                             {/* Header do Chat */}
-                                            <div className="flex items-center justify-between border-b border-border-subtle bg-gradient-to-r from-indigo-50/50 to-purple-50/30 px-5 py-4">
+                                            <div className="flex items-center justify-between border-b border-border-subtle bg-gradient-to-r from-indigo-50/50 to-purple-50/30 dark:from-indigo-950/30 dark:to-purple-950/20 px-5 py-4">
                                                 <div className="flex items-center gap-2.5">
                                                     <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-soft">
                                                         <Sparkles className="h-5 w-5" />
@@ -2332,14 +2430,14 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                         ].join(' ')}
                                                     >
                                                         <div className={[
-                                                            'max-w-[85%] rounded-[24px] px-4 py-3 text-xs leading-6 shadow-soft border',
+                                                            'max-w-[85%] rounded-[24px] px-4 py-3 text-[13px] leading-relaxed shadow-soft border',
                                                             msg.role === 'user'
                                                                 ? 'bg-indigo-600 text-white border-indigo-700 rounded-tr-none'
                                                                 : msg.role === 'system'
-                                                                    ? 'bg-neutral-50 text-text-secondary border-neutral-200/60'
-                                                                    : 'bg-indigo-50/30 text-text-primary border-indigo-100 rounded-tl-none'
+                                                                    ? 'bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 border-indigo-150/50 dark:border-indigo-900/40 rounded-tl-none'
+                                                                    : 'bg-slate-800 dark:bg-slate-900 text-white border-slate-700/80 rounded-tl-none'
                                                         ].join(' ')}>
-                                                            {msg.content}
+                                                            {msg.role === 'user' ? msg.content : <MarkdownRenderer text={msg.content} />}
                                                         </div>
                                                     </div>
                                                 ))}
@@ -2347,8 +2445,8 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                 {/* Indicador de carregamento */}
                                                 {chatLoading && (
                                                     <div className="flex justify-start">
-                                                        <div className="bg-indigo-50/30 text-text-secondary border border-indigo-100 rounded-[24px] rounded-tl-none px-4 py-3 text-xs flex items-center gap-2">
-                                                            <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+                                                        <div className="bg-slate-800 dark:bg-slate-900 text-white border border-slate-700/80 rounded-[24px] rounded-tl-none px-4 py-3 text-xs flex items-center gap-2">
+                                                            <Loader2 className="h-4 w-4 animate-spin text-white" />
                                                             <span>Analisando o histórico acadêmico...</span>
                                                         </div>
                                                     </div>
@@ -2365,7 +2463,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                             <button
                                                                 key={q}
                                                                 onClick={() => handleSendSheetChatMessage(q)}
-                                                                className="text-left bg-white border border-border-subtle hover:border-indigo-400 hover:bg-indigo-50/20 text-[11px] text-text-secondary hover:text-indigo-700 px-3.5 py-2.5 rounded-2xl transition"
+                                                                className="text-left bg-bg-card border border-border-subtle hover:border-indigo-400 dark:hover:border-indigo-500/50 hover:bg-indigo-50/20 dark:hover:bg-bg-card-hover text-[11px] text-text-secondary hover:text-indigo-700 px-3.5 py-2.5 rounded-2xl transition"
                                                             >
                                                                 {q}
                                                             </button>
@@ -2375,7 +2473,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                             )}
 
                                             {/* Input do Chat */}
-                                            <div className="border-t border-border-subtle p-4 bg-white">
+                                            <div className="border-t border-border-subtle p-4 bg-bg-card">
                                                 <form
                                                     onSubmit={(e) => {
                                                         e.preventDefault();
@@ -2387,7 +2485,7 @@ export function HistoricalData({ defaultTab = 'history' }) {
                                                         value={chatInput}
                                                         onChange={(e) => setChatInput(e.target.value)}
                                                         placeholder="Pergunte sobre alunos, rendimentos ou disciplinas..."
-                                                        className="h-11 flex-1 rounded-2xl border border-border-subtle bg-white px-4 text-xs text-text-primary outline-none focus:border-indigo-500"
+                                                        className="h-11 flex-1 rounded-2xl border border-border-subtle dark:border-border-subtle bg-bg-secondary/40 dark:bg-bg-secondary px-4 text-xs text-text-primary outline-none focus:border-indigo-500"
                                                         disabled={chatLoading}
                                                     />
                                                     <Button

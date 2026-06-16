@@ -1,73 +1,97 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, lazy } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
-import { Login } from '@/pages/Login';
-import { RegisterSelect } from '@/pages/Register';
-import { StudentRegister } from '@/pages/Register/StudentRegister';
-import { ProfessorRegister } from '@/pages/Register/ProfessorRegister';
-import { CoordinatorRegister } from '@/pages/Register/CoordinatorRegister';
 import { Dashboard } from '@/pages/Dashboard';
-import { StudentsList } from '@/pages/Students';
-import { Analytics } from '@/pages/Analytics';
-import { Predictions } from '@/pages/Predictions';
-import { Recommendations } from '@/pages/Recommendations';
-import { AIInsights } from '@/pages/AIInsights';
-import { StudentDashboard } from '@/pages/StudentDashboard';
-import { ProfessorDashboard } from '@/pages/ProfessorDashboard';
-import { ProfessorCourses } from '@/pages/ProfessorCourses';
 import { ProfessorProfile } from '@/pages/ProfessorProfile';
-import { StudentProfile } from '@/pages/StudentProfile';
 import { HistoricalData } from '@/pages/HistoricalData';
-import { CoordinatorDashboard } from '@/pages/CoordinatorDashboard';
-import { ProrreitorDashboard } from '@/pages/ProrreitorDashboard';
-import { AnalysisCenter } from '@/pages/AnalysisCenter';
+import { RoleDashboard } from '@/pages/RoleDashboard';
+import { LiveDataPage } from '@/pages/LiveData';
+import { CoordinatorManagement } from '@/pages/CoordinatorManagement';
+import { UnifiedAnalysisCenter } from '@/pages/UnifiedAnalysisCenter';
+import { AIInsightsPage } from '@/pages/AIInsights';
+
+const Login = lazy(() => import('@/pages/Login').then((module) => ({ default: module.Login })));
+const RegisterSelect = lazy(() => import('@/pages/Register').then((module) => ({ default: module.RegisterSelect })));
+const ProfessorRegister = lazy(() => import('@/pages/Register/ProfessorRegister').then((module) => ({ default: module.ProfessorRegister })));
+const CoordinatorRegister = lazy(() => import('@/pages/Register/CoordinatorRegister').then((module) => ({ default: module.CoordinatorRegister })));
+
+function AuthFallback() {
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-bg-primary px-6">
+            <div className="flex items-center gap-3 rounded-[24px] border border-border-subtle bg-white/90 px-5 py-4 text-sm font-medium text-text-secondary shadow-card">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent-blue border-t-transparent" />
+                Carregando...
+            </div>
+        </div>
+    );
+}
 
 function App() {
     return (
         <BrowserRouter>
             <AuthProvider>
                 <Routes>
-                    {/* Público */}
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/register" element={<RegisterSelect />} />
-                    <Route path="/register/student" element={<StudentRegister />} />
-                    <Route path="/register/professor" element={<ProfessorRegister />} />
-                    <Route path="/register/coordinator" element={<CoordinatorRegister />} />
+                    <Route
+                        path="/login"
+                        element={(
+                            <Suspense fallback={<AuthFallback />}>
+                                <Login />
+                            </Suspense>
+                        )}
+                    />
+                    <Route
+                        path="/register"
+                        element={(
+                            <Suspense fallback={<AuthFallback />}>
+                                <RegisterSelect />
+                            </Suspense>
+                        )}
+                    />
+                    <Route
+                        path="/register/professor"
+                        element={(
+                            <Suspense fallback={<AuthFallback />}>
+                                <ProfessorRegister />
+                            </Suspense>
+                        )}
+                    />
+                    <Route
+                        path="/register/coordinator"
+                        element={(
+                            <Suspense fallback={<AuthFallback />}>
+                                <CoordinatorRegister />
+                            </Suspense>
+                        )}
+                    />
 
-                    {/* Protegido */}
                     <Route path="/" element={<Layout />}>
-                        {/* Viewer routes */}
                         <Route index element={<Dashboard />} />
-                        <Route path="students" element={<StudentsList />} />
-                        <Route path="analytics" element={<Analytics />} />
-                        <Route path="predictions" element={<Predictions />} />
-                        <Route path="recommendations" element={<Recommendations />} />
-                        <Route path="ai-insights" element={<AIInsights />} />
 
-                        {/* Student routes */}
-                        <Route path="student/dashboard" element={<StudentDashboard />} />
-                        <Route path="student/profile" element={<StudentProfile />} />
-
-                        {/* Professor routes */}
-                        <Route path="professor/dashboard" element={<ProfessorDashboard />} />
-                        <Route path="professor/courses" element={<ProfessorCourses />} />
+                        <Route path="professor/dashboard" element={<RoleDashboard />} />
+                        <Route path="professor/live-data" element={<LiveDataPage />} />
                         <Route path="professor/profile" element={<ProfessorProfile />} />
                         <Route path="professor/historical-upload" element={<HistoricalData defaultTab="upload" />} />
                         <Route path="professor/historical-data" element={<HistoricalData defaultTab="history" />} />
-                        <Route path="professor/analysis-center" element={<AnalysisCenter />} />
+                        <Route path="professor/analysis-center" element={<UnifiedAnalysisCenter />} />
+                        <Route path="professor/ai-insights" element={<AIInsightsPage />} />
 
-                        {/* Proreitor routes */}
-                        <Route path="proreitor/dashboard" element={<ProrreitorDashboard />} />
-                        <Route path="proreitor/courses" element={<ProfessorCourses />} />
+                        <Route path="proreitor/dashboard" element={<RoleDashboard />} />
+                        <Route path="proreitor/live-data" element={<LiveDataPage />} />
                         <Route path="proreitor/profile" element={<ProfessorProfile />} />
                         <Route path="proreitor/historical-upload" element={<HistoricalData defaultTab="upload" />} />
                         <Route path="proreitor/historical-data" element={<HistoricalData defaultTab="history" />} />
-                        <Route path="proreitor/analysis-center" element={<AnalysisCenter />} />
+                        <Route path="proreitor/analysis-center" element={<UnifiedAnalysisCenter />} />
+                        <Route path="proreitor/ai-insights" element={<AIInsightsPage />} />
+                        <Route path="proreitor/coordinators" element={<CoordinatorManagement />} />
 
-                        {/* Coordinator routes */}
-                        <Route path="coordinator/dashboard" element={<CoordinatorDashboard />} />
-                        <Route path="coordinator/analysis-center" element={<AnalysisCenter />} />
+                        <Route path="coordinator/dashboard" element={<RoleDashboard />} />
+                        <Route path="coordinator/live-data" element={<LiveDataPage />} />
+                        <Route path="coordinator/profile" element={<ProfessorProfile />} />
+                        <Route path="coordinator/historical-upload" element={<HistoricalData defaultTab="upload" />} />
+                        <Route path="coordinator/historical-data" element={<HistoricalData defaultTab="history" />} />
+                        <Route path="coordinator/analysis-center" element={<UnifiedAnalysisCenter />} />
+                        <Route path="coordinator/ai-insights" element={<AIInsightsPage />} />
                     </Route>
                 </Routes>
             </AuthProvider>

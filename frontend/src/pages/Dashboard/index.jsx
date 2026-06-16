@@ -30,8 +30,8 @@ export function Dashboard() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    if (user?.role?.toLowerCase() === 'student') {
-        return <Navigate to="/student/dashboard" replace />;
+    if (['professor', 'coordinator', 'admin'].includes(user?.role?.toLowerCase())) {
+        return <Navigate to={user.role.toLowerCase() === 'admin' ? '/proreitor/dashboard' : `/${user.role.toLowerCase()}/dashboard`} replace />;
     }
 
     useEffect(() => {

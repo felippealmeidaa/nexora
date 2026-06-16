@@ -1,20 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Lock, User, ShieldAlert, Timer } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Lock, ShieldAlert, Timer, User } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import {
-    AuthAlert,
-    AuthCard,
-    AuthLayout,
-    AuthSuccessState,
-} from '@/components/auth/AuthLayout';
+import { AuthAlert, AuthCard, AuthLayout } from '@/components/auth/AuthLayout';
 
-// Número máximo de tentativas antes de bloquear o botão no frontend
 const MAX_CLIENT_ATTEMPTS = 5;
-// Tempo de bloqueio local em segundos (espelha o backend: 15 min)
 const LOCKOUT_SECONDS = 15 * 60;
 
 export function Login() {
@@ -22,7 +15,6 @@ export function Login() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [pendingApproval, setPendingApproval] = useState(false);
     const [rateLimited, setRateLimited] = useState(false);
     const [attempts, setAttempts] = useState(0);
     const [countdown, setCountdown] = useState(0);
@@ -30,29 +22,28 @@ export function Login() {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Iniciar countdown quando bloqueado
     useEffect(() => {
         if (!rateLimited) return;
         setCountdown(LOCKOUT_SECONDS);
         const interval = setInterval(() => {
-            setCountdown((prev) => {
-                if (prev <= 1) {
+            setCountdown((previous) => {
+                if (previous <= 1) {
                     clearInterval(interval);
                     setRateLimited(false);
                     setAttempts(0);
                     setError('');
                     return 0;
                 }
-                return prev - 1;
+                return previous - 1;
             });
         }, 1000);
         return () => clearInterval(interval);
     }, [rateLimited]);
 
     const formatCountdown = useCallback((seconds) => {
-        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-        const s = (seconds % 60).toString().padStart(2, '0');
-        return `${m}:${s}`;
+        const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+        const remainingSeconds = (seconds % 60).toString().padStart(2, '0');
+        return `${minutes}:${remainingSeconds}`;
     }, []);
 
     const handleSubmit = async (event) => {
@@ -73,29 +64,11 @@ export function Login() {
             return;
         }
 
-        if (result.message && result.message.includes('aprovad')) {
-            setPendingApproval(true);
-        } else {
-            const newAttempts = attempts + 1;
-            setAttempts(newAttempts);
-            setError(result.message);
-        }
+        setAttempts((previous) => previous + 1);
+        setError(result.message);
         setLoading(false);
     };
 
-    if (pendingApproval) {
-        return (
-            <AuthSuccessState
-                status="pending"
-                title="Cadastro em aprovação"
-                description="Sua solicitação foi registrada e está aguardando validação administrativa para liberar o acesso."
-                actionLabel="Voltar para o login"
-                onAction={() => setPendingApproval(false)}
-            />
-        );
-    }
-
-    // Estado de bloqueio por rate limit
     if (rateLimited) {
         return (
             <AuthLayout>
@@ -116,7 +89,7 @@ export function Login() {
                             </p>
                         </div>
 
-                        {countdown > 0 && (
+                        {countdown > 0 ? (
                             <div className="flex flex-col items-center gap-2">
                                 <div className="flex items-center gap-2 rounded-2xl border border-warning/20 bg-warning/8 px-6 py-4">
                                     <Timer className="h-5 w-5 text-warning" />
@@ -126,11 +99,7 @@ export function Login() {
                                 </div>
                                 <p className="text-xs text-text-tertiary">Tempo restante</p>
                             </div>
-                        )}
-
-                        <p className="text-center text-xs text-text-tertiary">
-                            Se você acredita que houve um erro, entre em contato com o administrador da instituição.
-                        </p>
+                        ) : null}
                     </div>
                 </AuthCard>
             </AuthLayout>
@@ -143,13 +112,13 @@ export function Login() {
         <AuthLayout>
             <AuthCard
                 title="Entrar na NEXORA"
-                subtitle="Use sua matrícula, código institucional ou e-mail para acessar a plataforma."
+                subtitle="Use seu login do Lyceum, código aprovado ou e-mail cadastrado para acessar a plataforma."
                 maxWidth="max-w-md"
             >
                 <form onSubmit={handleSubmit} className="space-y-5">
                     {error ? <AuthAlert>{error}</AuthAlert> : null}
 
-                    {isLockedOut && !rateLimited ? (
+                    {isLockedOut ? (
                         <div className="rounded-2xl border border-danger/20 bg-danger/5 p-3 text-center text-xs text-danger">
                             <ShieldAlert className="mx-auto mb-1 h-4 w-4" />
                             Limite de tentativas atingido. O próximo erro irá bloquear o acesso por 15 minutos.
@@ -163,7 +132,7 @@ export function Login() {
                     ) : null}
 
                     <Input
-                        label="E-mail, matrícula ou código"
+                        label="Login, código ou e-mail"
                         placeholder="Digite seu identificador de acesso"
                         icon={User}
                         value={identifier}
@@ -183,32 +152,21 @@ export function Login() {
                         disabled={isLockedOut || loading}
                     />
 
-                    <Button
-                        type="submit"
-                        loading={loading}
-                        disabled={isLockedOut}
-                        className="w-full"
-                    >
-                        Entrar no sistema
+                    <Button type="submit" className="w-full" loading={loading} disabled={isLockedOut}>
+                        Entrar
                     </Button>
-                </form>
 
-                <div className="mt-7 text-center">
-                    <p className="text-sm text-text-secondary">
-                        Não tem conta?{' '}
+                    <div className="text-center text-sm text-text-secondary">
+                        Ainda não tem conta?{' '}
                         <button
                             type="button"
                             onClick={() => navigate('/register')}
                             className="font-semibold text-accent-blue transition-colors hover:text-accent-purple"
                         >
-                            Solicitar cadastro
+                            Criar conta
                         </button>
-                    </p>
-                </div>
-
-                <p className="mt-5 text-center text-[11px] uppercase tracking-[0.18em] text-text-tertiary">
-                    NEXORA | inteligência analítica para decisões acadêmicas
-                </p>
+                    </div>
+                </form>
             </AuthCard>
         </AuthLayout>
     );

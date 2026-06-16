@@ -4,7 +4,7 @@ Router de autenticacao.
 Endpoints para registro de usuarios, login, refresh e gerenciamento de sessoes.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.coordinator import Coordinator
-from app.models.professor import Professor, ProfessorAcademicCourse, ProfessorCourse
-from app.models.staff_code import StaffRegistrationCode, StaffRole
-from app.models.student import ClassSchedule, Student
+from app.models.coordinator_approval import CoordinatorApproval
+from app.models.course import Course
+from app.models.professor import Professor
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.models.login_attempt import LoginAttempt
@@ -24,9 +24,9 @@ from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
     ProfessorRegisterRequest,
-    RegisterRequest,
+    LyceumPasswordUpdateRequest,
     SessionInfoResponse,
-    StudentRegisterRequest,
+    SystemPasswordUpdateRequest,
     UserResponse,
 )
 from app.schemas.coordinator import CoordinatorRegisterRequest
@@ -40,10 +40,13 @@ from app.security.auth import (
 )
 from app.security.hashing import hash_password, verify_password
 from app.security.secrets import encrypt_secret
+from app.services.live_data_service import LiveDataService
+from app.services.scraper_service import scraper_service
 from app.security.session import (
     create_session_payload,
     create_user_session,
     generate_refresh_token,
+    get_client_ip,
     get_device_id,
     revoke_all_user_sessions,
     revoke_session,
@@ -54,18 +57,17 @@ from app.security.session import (
 router = APIRouter(prefix="/api/auth", tags=["Autenticacao"])
 
 
+def _build_placeholder_email(prefix: str, identifier: str) -> str:
+    safe_identifier = "".join(char for char in str(identifier or "").lower() if char.isalnum() or char in {"-", "_", "."})
+    safe_identifier = safe_identifier or "usuario"
+    return f"{prefix}-{safe_identifier}@nexora.local"
+
+
 def _resolve_user_for_login(identifier: str, db: Session) -> User | None:
-    user = db.query(User).filter(
+    return db.query(User).filter(
         (User.username == identifier)
         | (User.email == identifier)
     ).first()
-    if user:
-        return user
-
-    student = db.query(Student).filter(Student.registration_number == identifier).first()
-    if student:
-        return student.user
-    return None
 
 
 def _apply_session_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -107,108 +109,30 @@ def _serialize_sessions(
     return payload
 
 
-@router.post("/register", response_model=UserResponse, status_code=201)
-def register(data: RegisterRequest, db: Session = Depends(get_db)):
-    """Registra um novo usuario no sistema."""
-    if db.query(User).filter(User.username == data.username).first():
-        raise HTTPException(status_code=400, detail="Username ja cadastrado")
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(status_code=400, detail="E-mail ja cadastrado")
-
-    user = User(
-        username=data.username,
-        full_name=data.full_name,
-        email=data.email,
-        hashed_password=hash_password(data.password),
-        role=UserRole.VIEWER,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    audit_logger.log_data_change(data.username, "User", "CREATE", user.id)
-    return user
-
-
-@router.post("/register/student", response_model=UserResponse, status_code=201)
-def register_student(data: StudentRegisterRequest, db: Session = Depends(get_db)):
-    """Registra um novo aluno. Cria User + Student vinculados."""
-    if db.query(User).filter(User.username == data.registration_number).first():
-        raise HTTPException(status_code=400, detail="Matricula ja cadastrada como username")
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(status_code=400, detail="E-mail ja cadastrado")
-    if db.query(Student).filter(Student.registration_number == data.registration_number).first():
-        raise HTTPException(status_code=400, detail="Matricula ja cadastrada")
-    if db.query(Student).filter(Student.cpf == data.cpf).first():
-        raise HTTPException(status_code=400, detail="CPF ja cadastrado")
-
-    user = User(
-        username=data.registration_number,
-        full_name=data.name,
-        email=data.email,
-        hashed_password=hash_password(data.password),
-        role=UserRole.STUDENT,
-        is_active=True,
-        is_approved=True,
-    )
-    db.add(user)
-    db.flush()
-
-    schedule = None
-    if data.class_schedule:
-        try:
-            schedule = ClassSchedule(data.class_schedule)
-        except ValueError:
-            schedule = None
-
-    student = Student(
-        user_id=user.id,
-        name=data.name,
-        age=data.age,
-        cpf=data.cpf,
-        gender=data.gender,
-        phone=data.phone,
-        email=data.email,
-        registration_number=data.registration_number,
-        course_name=data.course_name,
-        current_period=data.current_period,
-        class_schedule=schedule,
-        enrollment_date=date.today(),
-        is_working=data.is_working,
-        work_schedule=data.work_schedule,
-        lyceum_password=encrypt_secret(data.lyceum_password),
-        sync_status="idle",
-    )
-    db.add(student)
-    db.commit()
-    db.refresh(user)
-
-    audit_logger.log_data_change(user.username, "Student", "CREATE", user.id)
-    return user
-
-
 @router.post("/register/professor", response_model=UserResponse, status_code=201)
 def register_professor(data: ProfessorRegisterRequest, db: Session = Depends(get_db)):
-    """Registra um novo professor com codigo institucional valido."""
-    staff_code = db.query(StaffRegistrationCode).filter(
-        StaffRegistrationCode.code == data.registration_code,
-        StaffRegistrationCode.role == StaffRole.PROFESSOR,
-    ).first()
+    """Registra um professor validando as credenciais diretamente no Lyceum."""
+    lyceum_login = data.lyceum_login.strip()
+    if db.query(User).filter(User.username == lyceum_login).first():
+        raise HTTPException(status_code=400, detail="Ja existe uma conta cadastrada com este login do Lyceum.")
 
-    if not staff_code:
-        raise HTTPException(status_code=400, detail="Codigo de matricula invalido ou nao autorizado para professor")
-    if staff_code.is_used:
-        raise HTTPException(status_code=400, detail="Este codigo de matricula ja foi utilizado")
-    if db.query(User).filter(User.username == data.registration_code).first():
-        raise HTTPException(status_code=400, detail="Codigo de matricula ja cadastrado como username")
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(status_code=400, detail="E-mail ja cadastrado")
+    portal_result = scraper_service.scrape_professor_portal(lyceum_login, data.lyceum_password)
+    if not portal_result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=portal_result.get("errors", ["Nao foi possivel validar as credenciais no Lyceum."])[0],
+        )
+
+    professor_name = str(portal_result.get("professor_name") or lyceum_login).strip()
+    placeholder_email = _build_placeholder_email("prof", lyceum_login)
+    if db.query(User).filter(User.email == placeholder_email).first():
+        placeholder_email = _build_placeholder_email("prof", f"{lyceum_login}-{int(datetime.utcnow().timestamp())}")
 
     user = User(
-        username=data.registration_code,
-        full_name=data.name,
-        email=data.email,
-        hashed_password=hash_password(data.password),
+        username=lyceum_login,
+        full_name=professor_name,
+        email=placeholder_email,
+        hashed_password=hash_password(data.lyceum_password),
         role=UserRole.PROFESSOR,
         is_active=True,
         is_approved=True,
@@ -218,54 +142,48 @@ def register_professor(data: ProfessorRegisterRequest, db: Session = Depends(get
 
     professor = Professor(
         user_id=user.id,
-        phone=data.phone,
+        phone=None,
+        lyceum_password=encrypt_secret(data.lyceum_password),
+        last_portal_sync_at=datetime.utcnow(),
+        portal_sync_status="done",
+        portal_sync_error=None,
     )
     db.add(professor)
     db.flush()
 
-    for name in data.academic_course_names:
-        db.add(ProfessorAcademicCourse(
-            professor_id=professor.id,
-            course_name=name,
-        ))
-
-    for course_id in data.course_ids:
-        db.add(ProfessorCourse(
-            professor_id=professor.id,
-            course_id=course_id,
-        ))
-
-    staff_code.is_used = True
-    staff_code.used_by_user_id = user.id
+    live_data_service = LiveDataService(db)
+    live_data_service.replace_professor_snapshot(
+        professor_user_id=user.id,
+        professor_name=professor_name,
+        classes_payload=portal_result.get("classes", []),
+    )
 
     db.commit()
     db.refresh(user)
 
-    audit_logger.log_data_change(data.registration_code, "Professor", "CREATE", user.id)
+    audit_logger.log_data_change(lyceum_login, "Professor", "CREATE", user.id)
     return user
 
 
 @router.post("/register/coordinator", response_model=UserResponse, status_code=201)
 def register_coordinator(data: CoordinatorRegisterRequest, db: Session = Depends(get_db)):
-    """Registra um novo coordenador com codigo institucional valido."""
-    staff_code = db.query(StaffRegistrationCode).filter(
-        StaffRegistrationCode.code == data.registration_code,
-        StaffRegistrationCode.role == StaffRole.COORDINATOR,
-    ).first()
-
-    if not staff_code:
-        raise HTTPException(status_code=400, detail="Codigo de matricula invalido ou nao autorizado para coordenador")
-    if staff_code.is_used:
-        raise HTTPException(status_code=400, detail="Este codigo de matricula ja foi utilizado")
+    """Conclui o cadastro de um coordenador a partir de um codigo previamente aprovado pelo admin."""
+    approval = db.query(CoordinatorApproval).filter(CoordinatorApproval.code == data.registration_code).first()
+    if not approval:
+        raise HTTPException(status_code=400, detail="Codigo de coordenador nao aprovado pelo admin.")
+    if approval.is_claimed:
+        raise HTTPException(status_code=400, detail="Este codigo de coordenador ja foi utilizado.")
     if db.query(User).filter(User.username == data.registration_code).first():
-        raise HTTPException(status_code=400, detail="Username ja cadastrado")
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(status_code=400, detail="E-mail ja cadastrado")
+        raise HTTPException(status_code=400, detail="Ja existe uma conta criada com este codigo.")
+
+    placeholder_email = _build_placeholder_email("coord", data.registration_code)
+    if db.query(User).filter(User.email == placeholder_email).first():
+        placeholder_email = _build_placeholder_email("coord", f"{data.registration_code}-{int(datetime.utcnow().timestamp())}")
 
     user = User(
         username=data.registration_code,
-        full_name=data.name,
-        email=data.email,
+        full_name=approval.full_name,
+        email=placeholder_email,
         hashed_password=hash_password(data.password),
         role=UserRole.COORDINATOR,
         is_active=True,
@@ -274,22 +192,34 @@ def register_coordinator(data: CoordinatorRegisterRequest, db: Session = Depends
     db.add(user)
     db.flush()
 
+    course_names = [str(name).strip() for name in (approval.course_names or []) if str(name).strip()]
+    primary_course_name = course_names[0] if course_names else "Curso nao informado"
     coordinator = Coordinator(
         user_id=user.id,
-        phone=data.phone,
-        academic_course_name=data.academic_course_name,
+        phone=None,
+        academic_course_name=primary_course_name,
+        course_names=course_names,
     )
     db.add(coordinator)
     db.flush()
 
-    for course_id in data.course_ids:
+    course_ids = []
+    if course_names:
+        course_ids = [
+            row[0]
+            for row in db.query(Course.id)
+            .filter(Course.department.in_(course_names) | Course.name.in_(course_names))
+            .all()
+        ]
+
+    for course_id in course_ids:
         db.add(CoordinatorCourse(
             coordinator_id=coordinator.id,
             course_id=course_id,
         ))
 
-    staff_code.is_used = True
-    staff_code.used_by_user_id = user.id
+    approval.is_claimed = True
+    approval.claimed_user_id = user.id
 
     db.commit()
     db.refresh(user)
@@ -303,7 +233,7 @@ def login(data: LoginRequest, request: Request, response: Response, db: Session 
     """Autentica usuario, cria sessao persistida e seta cookies de acesso e refresh com rate limit e lockout."""
     identifier = data.identifier.strip()
     password = data.password.strip()
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
 
     # Verificar rate limit e lockout de login
     fifteen_minutes_ago = datetime.utcnow() - timedelta(minutes=15)
@@ -398,6 +328,11 @@ def login(data: LoginRequest, request: Request, response: Response, db: Session 
                 "X-RateLimit-Remaining": str(max(0, remaining - 1))
             }
         )
+
+    if user.role == UserRole.PROFESSOR:
+        professor = db.query(Professor).filter(Professor.user_id == user.id).first()
+        if professor and not str(professor.lyceum_password or "").strip():
+            professor.lyceum_password = encrypt_secret(password)
 
     # Registrar tentativa bem-sucedida
     attempt = LoginAttempt(ip_address=client_ip, username=user.username, is_successful=True)
@@ -580,4 +515,56 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     audit_logger.log_data_change(current_user.username, "User", "UPDATE", current_user.id)
+    return current_user
+
+
+@router.post("/me/lyceum-password", response_model=UserResponse)
+def update_my_lyceum_password(
+    data: LyceumPasswordUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza a senha salva do Lyceum para futuras sincronizacoes do professor."""
+    if current_user.role != UserRole.PROFESSOR:
+        raise HTTPException(status_code=403, detail="Apenas professores podem atualizar a senha do Lyceum.")
+
+    professor = db.query(Professor).filter(Professor.user_id == current_user.id).first()
+    if not professor:
+        raise HTTPException(status_code=404, detail="Perfil de professor nao encontrado.")
+
+    portal_result = scraper_service.scrape_professor_portal(current_user.username, data.lyceum_password)
+    if not portal_result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=portal_result.get("errors", ["Nao foi possivel validar a nova senha do Lyceum."])[0],
+        )
+
+    professor.lyceum_password = encrypt_secret(data.lyceum_password)
+    professor.portal_sync_status = "done"
+    professor.portal_sync_error = None
+    db.commit()
+    db.refresh(current_user)
+
+    audit_logger.log_data_change(current_user.username, "ProfessorLyceumPassword", "UPDATE", current_user.id)
+    return current_user
+
+
+@router.post("/me/system-password", response_model=UserResponse)
+def update_my_system_password(
+    data: SystemPasswordUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza somente a senha de acesso do usuario ao NEXORA."""
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="A senha atual do NEXORA esta incorreta.")
+
+    if data.current_password == data.new_password:
+        raise HTTPException(status_code=400, detail="A nova senha do NEXORA deve ser diferente da senha atual.")
+
+    current_user.hashed_password = hash_password(data.new_password)
+    db.commit()
+    db.refresh(current_user)
+
+    audit_logger.log_data_change(current_user.username, "UserPassword", "UPDATE", current_user.id)
     return current_user

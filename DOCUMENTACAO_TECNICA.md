@@ -1,4 +1,4 @@
-# DOCUMENTACAO TECNICA - NEXORA / SIMA
+# DOCUMENTACAO TECNICA - NEXORA
 
 Documento consolidado para handoff tecnico a outra equipe de engenharia.
 Baseado no estado atual do codigo em 21/05/2026.
@@ -22,19 +22,18 @@ Arquitetura principal:
 
 ## 2. Perfis de acesso
 
-- `student`
 - `professor`
 - `coordinator`
 - `admin`
 - `viewer`
 
-No frontend, `admin` e apresentado como `proreitor`.
+No frontend, o perfil administrativo aparece como `admin`, embora algumas rotas ainda usem o prefixo legado `/proreitor`.
 
 ## 3. Estado atual de seguranca
 
 Camadas ja aplicadas:
 
-- `SECRET_KEY` e configuracoes sensiveis fora do codigo-fonte
+- `SECRET_KEY` e `LYCEUM_CREDENTIALS_KEY` fora do codigo-fonte em producao
 - credenciais do Lyceum armazenadas criptografadas
 - RBAC reforcado nas rotas mais sensiveis
 - CORS por lista explicita
@@ -49,9 +48,6 @@ Camadas ja aplicadas:
 
 Gaps ainda abertos:
 
-- rate limit por IP e por usuario
-- lockout por tentativas repetidas de login
-- cabecalhos HTTP de seguranca
 - observabilidade de sessoes e alertas de reuse em producao
 
 ## 4. Estrutura do repositorio
@@ -112,6 +108,7 @@ Responsabilidades:
 - configurar CORS
 - aplicar tarefas de bootstrap opcional
 - executar reparos de dados legados
+- bloquear inicializacao insegura em producao
 
 ### 6.2 Startup
 
@@ -119,10 +116,9 @@ No `lifespan`:
 
 - cria schema completo apenas se `AUTO_CREATE_SCHEMA=true`
 - garante a tabela de `user_sessions` em desenvolvimento local
-- semeia codigos institucionais
+- valida configuracao sensivel antes de iniciar
 - cria admin default so se `CREATE_DEFAULT_ADMIN=true`
 - roda seed de demo so se `SEED_EMPTY_DATABASE=true`
-- sobe demo users so se `ENABLE_DEMO_BOOTSTRAP=true`
 - migra credenciais legadas sensiveis
 - roda reparo de frequencia legada se habilitado
 
@@ -136,6 +132,7 @@ Configuracoes mais relevantes:
 
 - `DATABASE_URL`
 - `SECRET_KEY`
+- `LYCEUM_CREDENTIALS_KEY`
 - `ACCESS_TOKEN_EXPIRE_MINUTES`
 - `REFRESH_TOKEN_EXPIRE_DAYS`
 - `ACCESS_COOKIE_NAME`
@@ -146,7 +143,6 @@ Configuracoes mais relevantes:
 - `MAX_UPLOAD_BYTES`
 - `MAX_HISTORICAL_RECORDS_PER_FILE`
 - `CORS_ALLOWED_ORIGINS`
-- `ENABLE_DEMO_BOOTSTRAP`
 - `CREATE_DEFAULT_ADMIN`
 
 ## 8. Modelo de dados

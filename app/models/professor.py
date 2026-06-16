@@ -1,11 +1,11 @@
 """
 Modelo de Professor (Professor).
 
-Representa um professor vinculado ao sistema, com informações de contato
-e associação com disciplinas (courses) que leciona.
+Representa um professor vinculado ao sistema, com informações de contato,
+credenciais seguras do Lyceum e associação com disciplinas.
 """
 
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, DateTime, String, Integer, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseModel
@@ -27,6 +27,10 @@ class Professor(BaseModel):
 
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
     phone = Column(String(20), nullable=True)
+    lyceum_password = Column(String(255), nullable=True)
+    last_portal_sync_at = Column(DateTime, nullable=True)
+    portal_sync_status = Column(String(30), nullable=False, default="idle")
+    portal_sync_error = Column(String(500), nullable=True)
 
     # Relacionamentos
     user = relationship("User", backref="professor_profile", foreign_keys=[user_id])

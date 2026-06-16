@@ -15,6 +15,25 @@ from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RUNTIME_DIR = PROJECT_ROOT / ".nexora-runtime"
+
+
+def _load_or_create_local_secret(filename: str, *, size: int = 64) -> str:
+    """Persist a local secret for development when no env var is provided."""
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    secret_path = RUNTIME_DIR / filename
+
+    if secret_path.exists():
+        existing = secret_path.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+
+    generated = secrets.token_urlsafe(size)
+    secret_path.write_text(generated, encoding="utf-8")
+    return generated
+
+
 class Settings(BaseSettings):
     """Configuracoes da aplicacao carregadas via variaveis de ambiente."""
 
@@ -35,11 +54,11 @@ class Settings(BaseSettings):
     AUTO_CREATE_SCHEMA: bool = False
 
     # Seguranca / JWT
-    SECRET_KEY: str = Field(default_factory=lambda: secrets.token_urlsafe(64))
+    SECRET_KEY: str = Field(default_factory=lambda: _load_or_create_local_secret("secret_key.txt"))
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    LYCEUM_CREDENTIALS_KEY: str = ""
+    LYCEUM_CREDENTIALS_KEY: str = Field(default_factory=lambda: _load_or_create_local_secret("lyceum_credentials_key.txt"))
     ACCESS_COOKIE_NAME: str = "nexora_access"
     REFRESH_COOKIE_NAME: str = "nexora_refresh"
     SESSION_COOKIE_SECURE: bool = False
@@ -70,10 +89,19 @@ class Settings(BaseSettings):
 
     # Caminhos
     BASE_DIR: Path = Path(__file__).resolve().parent
+    PROJECT_ROOT: Path = PROJECT_ROOT
+    LOCAL_RUNTIME_DIR: Path = RUNTIME_DIR
 
     # Gemini AI
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
+
+    # Cache / Redis
+    REDIS_URL: str = ""
+    CACHE_NAMESPACE: str = "nexora"
+    CACHE_DEFAULT_TTL_SECONDS: int = 900
+    REDIS_SOCKET_TIMEOUT_SECONDS: float = 0.4
+    REDIS_RETRY_COOLDOWN_SECONDS: int = 30
 
     @property
     def cors_allowed_origins(self) -> List[str]:
@@ -85,6 +113,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
+
+    @property
+    def secret_key_from_env(self) -> bool:
+        return "SECRET_KEY" in self.model_fields_set and bool(str(self.SECRET_KEY).strip())
+
+    @property
+    def lyceum_credentials_key_from_env(self) -> bool:
+        return "LYCEUM_CREDENTIALS_KEY" in self.model_fields_set and bool(str(self.LYCEUM_CREDENTIALS_KEY).strip())
 
 
 settings = Settings()

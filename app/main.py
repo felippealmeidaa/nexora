@@ -23,8 +23,9 @@ from app.models.attendance import Attendance, AttendanceStatus
 from app.models.user import User, UserRole
 from app.models.professor import Professor, ProfessorCourse, ProfessorAcademicCourse
 from app.models.coordinator import Coordinator
+from app.models.coordinator_approval import CoordinatorApproval  # noqa: F401
 from app.models.user_session import UserSession  # noqa: F401
-from app.models.staff_code import StaffRegistrationCode, StaffRole
+from app.models.live_data import ProfessorLiveClass, ProfessorLiveStudent  # noqa: F401
 from app.models.scraped_data import (
     ScrapedAttendance,
     ScrapedGrade,
@@ -36,20 +37,69 @@ from app.models.login_attempt import LoginAttempt  # noqa: F401
 from app.models.historical_spreadsheet import HistoricalSpreadsheet  # noqa: F401
 from app.utils.attendance import normalize_attendance_record, normalize_attendance_records, resolve_attendance_percentage, resolve_total_classes
 from app.routers import (
+    admin,
     analytics,
-    attendance,
     auth,
     coordinators,
-    courses,
-    grades,
     historical_data,
+    live_data,
     professors,
     students,
 )
 from app.security.hashing import hash_password
 from app.security.secrets import encrypt_secret, is_encrypted_secret
+from app.services.cache_service import cache_service
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
 logger = logging.getLogger(__name__)
+
+
+def validate_runtime_configuration() -> None:
+    """Bloqueia startups inseguras em producao e alerta sobre fallbacks locais."""
+    if settings.is_production:
+        issues: list[str] = []
+
+        if not settings.secret_key_from_env:
+            issues.append("SECRET_KEY deve ser configurada explicitamente por variavel de ambiente em producao.")
+        if not settings.lyceum_credentials_key_from_env:
+            issues.append("LYCEUM_CREDENTIALS_KEY deve ser configurada explicitamente por variavel de ambiente em producao.")
+        if not settings.SESSION_COOKIE_SECURE:
+            issues.append("SESSION_COOKIE_SECURE precisa ser true em producao.")
+        if settings.AUTO_CREATE_SCHEMA:
+            issues.append("AUTO_CREATE_SCHEMA nao pode permanecer habilitado em producao.")
+        if settings.CREATE_DEFAULT_ADMIN:
+            issues.append("CREATE_DEFAULT_ADMIN nao pode permanecer habilitado em producao.")
+        if settings.SEED_EMPTY_DATABASE:
+            issues.append("SEED_EMPTY_DATABASE nao pode permanecer habilitado em producao.")
+        if settings.ENABLE_DEMO_BOOTSTRAP:
+            issues.append("ENABLE_DEMO_BOOTSTRAP nao pode permanecer habilitado em producao.")
+
+        insecure_origins = [
+            origin for origin in settings.cors_allowed_origins
+            if "localhost" in origin.lower() or "127.0.0.1" in origin.lower()
+        ]
+        if insecure_origins:
+            issues.append("CORS_ALLOWED_ORIGINS ainda contem origens locais de desenvolvimento em producao.")
+
+        if issues:
+            raise RuntimeError("Configuracao insegura para producao:\n- " + "\n- ".join(issues))
+
+        return
+
+    if not settings.secret_key_from_env:
+        logger.warning(
+            "SECRET_KEY nao veio do ambiente. Usando segredo local persistido em %s.",
+            settings.LOCAL_RUNTIME_DIR,
+        )
+    if not settings.lyceum_credentials_key_from_env:
+        logger.warning(
+            "LYCEUM_CREDENTIALS_KEY nao veio do ambiente. Usando chave local persistida em %s.",
+            settings.LOCAL_RUNTIME_DIR,
+        )
 
 DEMO_SEMESTER = "2025.1"
 DEMO_ACADEMIC_COURSE = "Inteligência Artificial"
@@ -92,33 +142,6 @@ def ensure_security_tables_for_local_dev():
     if settings.is_production:
         return
     UserSession.__table__.create(bind=engine, checkfirst=True)
-
-
-def seed_staff_registration_codes(db):
-    """Populate demo staff codes when the table is empty."""
-    if db.query(StaffRegistrationCode).count() > 0:
-        return
-
-    codes = [
-        StaffRegistrationCode(code="10001", role=StaffRole.COORDINATOR),
-        StaffRegistrationCode(code="10002", role=StaffRole.COORDINATOR),
-        StaffRegistrationCode(code="10003", role=StaffRole.COORDINATOR),
-        StaffRegistrationCode(code="20001", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20002", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20003", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20004", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20005", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20006", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20007", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20008", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20009", role=StaffRole.PROFESSOR),
-        StaffRegistrationCode(code="20010", role=StaffRole.PROFESSOR),
-    ]
-
-    for code in codes:
-        db.add(code)
-    db.commit()
-    print("OK: staff registration codes created.")
 
 
 def upsert_user(db, payload):
@@ -531,11 +554,17 @@ def repair_scraped_attendance_data(db):
 def migrate_legacy_sensitive_data(db):
     """Encrypt any legacy Lyceum password still stored in plain text."""
     students = db.query(Student).filter(Student.lyceum_password.isnot(None)).all()
+    professors = db.query(Professor).filter(Professor.lyceum_password.isnot(None)).all()
     updated = 0
 
     for student in students:
         if student.lyceum_password and not is_encrypted_secret(student.lyceum_password):
             student.lyceum_password = encrypt_secret(student.lyceum_password)
+            updated += 1
+
+    for professor in professors:
+        if professor.lyceum_password and not is_encrypted_secret(professor.lyceum_password):
+            professor.lyceum_password = encrypt_secret(professor.lyceum_password)
             updated += 1
 
     if updated:
@@ -562,6 +591,8 @@ def ensure_demo_credentials(db):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Bootstraps optional startup tasks."""
+    validate_runtime_configuration()
+    logger.info("Backend iniciado com cache em %s.", cache_service.describe_backend())
     if settings.AUTO_CREATE_SCHEMA:
         Base.metadata.create_all(bind=engine)
         logger.warning("AUTO_CREATE_SCHEMA is enabled. Prefer Alembic migrations outside development.")
@@ -570,8 +601,6 @@ async def lifespan(app: FastAPI):
 
     db = SessionLocal()
     try:
-        seed_staff_registration_codes(db)
-
         if settings.CREATE_DEFAULT_ADMIN:
             admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
             if not admin:
@@ -595,9 +624,6 @@ async def lifespan(app: FastAPI):
 
             seed_database(db)
             logger.warning("Synthetic demo database seeded because SEED_EMPTY_DATABASE is enabled.")
-
-        if settings.ENABLE_DEMO_BOOTSTRAP:
-            ensure_demo_credentials(db)
 
         migrate_legacy_sensitive_data(db)
 
@@ -669,12 +695,11 @@ async def add_security_headers(request, call_next):
 
 app.include_router(auth.router)
 app.include_router(students.router)
-app.include_router(courses.router)
-app.include_router(grades.router)
-app.include_router(attendance.router)
 app.include_router(analytics.router)
 app.include_router(professors.router)
 app.include_router(coordinators.router)
+app.include_router(admin.router)
+app.include_router(live_data.router)
 app.include_router(historical_data.router)
 
 

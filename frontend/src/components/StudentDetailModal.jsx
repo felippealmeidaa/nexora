@@ -21,6 +21,7 @@ import {
     YAxis,
     Tooltip,
     CartesianGrid,
+    ReferenceLine,
 } from 'recharts';
 import api from '@/services/api';
 import { Badge } from '@/components/ui/Badge';
@@ -293,9 +294,9 @@ function OverviewTab({ student, kpis, history, recommendations, grades = [] }) {
             if (va1 !== null) {
                 projData.push({ name: 'VA1', nota: va1 });
             }
-            projData.push({ name: 'VA2', nota: va2 });
+            projData.push({ name: 'P2', nota: va2 });
             if (va3 !== null) {
-                projData.push({ name: 'VA3', nota: va3 });
+                projData.push({ name: 'P3', nota: va3 });
             }
         } else if (va3_proj && va3 !== null) {
             if (va2 !== null) {
@@ -303,9 +304,11 @@ function OverviewTab({ student, kpis, history, recommendations, grades = [] }) {
             } else if (va1 !== null) {
                 projData.push({ name: 'VA1', nota: va1 });
             }
-            projData.push({ name: 'VA3', nota: va3 });
+            projData.push({ name: 'P3', nota: va3 });
         }
     }
+
+    const lastRealName = realData.length > 0 ? realData[realData.length - 1].name : null;
 
     const CustomTooltip = ({ active, payload }) => {
         if (active && payload && payload.length) {
@@ -390,6 +393,22 @@ function OverviewTab({ student, kpis, history, recommendations, grades = [] }) {
                                 <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
                                 <YAxis domain={[0, 10]} ticks={[0, 2, 4, 6, 8, 10]} stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
                                 <Tooltip content={<CustomTooltip />} cursor={false} />
+                                {lastRealName && projData.length > 0 && (
+                                    <ReferenceLine 
+                                        x={lastRealName} 
+                                        stroke="#8b5cf6" 
+                                        strokeWidth={1.5} 
+                                        strokeDasharray="4 4"
+                                        label={{ 
+                                            value: 'Transição Real ➔ Projeção (IA) 🔮', 
+                                            position: 'insideTopLeft', 
+                                            fill: '#8b5cf6', 
+                                            fontSize: 9,
+                                            fontWeight: 'bold',
+                                            offset: 8
+                                        }} 
+                                    />
+                                )}
                                 <Line
                                     type="monotone"
                                     data={realData}

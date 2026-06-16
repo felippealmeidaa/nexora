@@ -73,6 +73,15 @@ logger = logging.getLogger(__name__)
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".xls", ".xlsx", ".txt", ".pdf"}
 
 
+@router.post("/internal/flush-cache", include_in_schema=False)
+def flush_workspace_cache():
+    """Limpa o cache do workspace em memória (uso interno / dev)."""
+    HistoricalAnalysisService.clear_workspace_cache()
+    return {"flushed": True}
+
+
+
+
 def _validate_upload(filename: str, content: bytes) -> str:
     lowered = (filename or "").strip().lower()
     extension = ""
@@ -629,13 +638,13 @@ def export_historical_analysis_workspace(
         content = export_service.export_json(payload)
         media_type = "application/json"
     elif export_format == "csv":
-        content = export_service.export_csv(rows)
+        content = export_service.export_csv(payload)
         media_type = "text/csv; charset=utf-8"
     elif export_format == "xlsx":
-        content = export_service.export_xlsx(rows, title)
+        content = export_service.export_xlsx(payload)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
-        content = export_service.export_pdf(workspace, analysis_id, title, rows)
+        content = export_service.export_pdf(payload)
         media_type = "application/pdf"
 
     filename = export_service.build_filename(analysis_id, export_format)
@@ -812,9 +821,12 @@ def list_uploaded_spreadsheets(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.PROFESSOR, UserRole.ADMIN)),
 ):
-    spreadsheets = db.query(HistoricalSpreadsheet).filter(
-        HistoricalSpreadsheet.professor_id == current_user.id
-    ).order_by(HistoricalSpreadsheet.uploaded_at.desc()).all()
+    service = HistoricalAnalysisService(db)
+    spreadsheets = (
+        service.spreadsheet_query_for_user(current_user)
+        .order_by(HistoricalSpreadsheet.uploaded_at.desc())
+        .all()
+    )
 
     total_spreadsheets = len(spreadsheets)
     total_records = sum(s.records_count for s in spreadsheets)
@@ -857,10 +869,8 @@ def delete_uploaded_spreadsheet(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.PROFESSOR, UserRole.ADMIN)),
 ):
-    spreadsheet = db.query(HistoricalSpreadsheet).filter(
-        HistoricalSpreadsheet.id == id,
-        HistoricalSpreadsheet.professor_id == current_user.id
-    ).first()
+    service = HistoricalAnalysisService(db)
+    spreadsheet = service.get_spreadsheet_for_user(current_user, id)
 
     if not spreadsheet:
         raise HTTPException(status_code=404, detail="Planilha não encontrada ou você não tem permissão para deletá-la.")
@@ -1072,15 +1082,12 @@ def get_spreadsheet_analysis(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.PROFESSOR, UserRole.ADMIN)),
 ):
-    spreadsheet = db.query(HistoricalSpreadsheet).filter(
-        HistoricalSpreadsheet.id == id,
-        HistoricalSpreadsheet.professor_id == current_user.id
-    ).first()
+    service = HistoricalAnalysisService(db)
+    spreadsheet = service.get_spreadsheet_for_user(current_user, id)
 
     if not spreadsheet:
         raise HTTPException(status_code=404, detail="Planilha não encontrada ou sem permissão de acesso.")
 
-    service = HistoricalAnalysisService(db)
     workspace = service.build_workspace(
         current_user=current_user,
         spreadsheet_id=id
@@ -1111,10 +1118,8 @@ async def chat_about_spreadsheet(
     if not message:
         raise HTTPException(status_code=400, detail="A mensagem é obrigatória.")
 
-    spreadsheet = db.query(HistoricalSpreadsheet).filter(
-        HistoricalSpreadsheet.id == id,
-        HistoricalSpreadsheet.professor_id == current_user.id
-    ).first()
+    service = HistoricalAnalysisService(db)
+    spreadsheet = service.get_spreadsheet_for_user(current_user, id)
 
     if not spreadsheet:
         raise HTTPException(status_code=404, detail="Planilha não encontrada ou sem permissão de acesso.")
@@ -1236,10 +1241,8 @@ async def generate_spreadsheet_ai_analysis(
     current_user: User = Depends(require_role(UserRole.PROFESSOR, UserRole.ADMIN)),
 ):
     try:
-        spreadsheet = db.query(HistoricalSpreadsheet).filter(
-            HistoricalSpreadsheet.id == id,
-            HistoricalSpreadsheet.professor_id == current_user.id
-        ).first()
+        service = HistoricalAnalysisService(db)
+        spreadsheet = service.get_spreadsheet_for_user(current_user, id)
 
         if not spreadsheet:
             raise HTTPException(status_code=404, detail="Planilha não encontrada ou sem permissão de acesso.")
@@ -1577,10 +1580,8 @@ async def generate_spreadsheet_ai_insights(
     current_user: User = Depends(require_role(UserRole.PROFESSOR, UserRole.ADMIN)),
 ):
     try:
-        spreadsheet = db.query(HistoricalSpreadsheet).filter(
-            HistoricalSpreadsheet.id == id,
-            HistoricalSpreadsheet.professor_id == current_user.id
-        ).first()
+        service = HistoricalAnalysisService(db)
+        spreadsheet = service.get_spreadsheet_for_user(current_user, id)
 
         if not spreadsheet:
             raise HTTPException(status_code=404, detail="Planilha não encontrada ou sem permissão de acesso.")

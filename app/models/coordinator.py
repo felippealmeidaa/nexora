@@ -1,11 +1,10 @@
 """
 Modelo de Coordenador (Coordinator).
 
-Representa um coordenador de curso vinculado ao sistema.
-O coordenador tem acesso a todos os alunos e disciplinas do curso que coordena.
+Representa um coordenador com um ou mais cursos academicos vinculados.
 """
 
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseModel
@@ -28,6 +27,7 @@ class Coordinator(BaseModel):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
     phone = Column(String(20), nullable=True)
     academic_course_name = Column(String(200), nullable=False)
+    course_names = Column(JSON, nullable=False, default=list)
 
     # Relacionamentos
     user = relationship("User", backref="coordinator_profile", foreign_keys=[user_id])

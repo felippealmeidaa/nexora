@@ -503,3 +503,50 @@ class TestIncompleteSpreadsheet:
             assert "Template de Engajamento Coletivo" in insights
 
 
+class TestHistoricalOwnershipScope:
+    def test_admin_cannot_see_professor_spreadsheets_or_workspace(self, professor_client, client):
+        """Admin so enxerga planilhas e registros que ele mesmo enviou."""
+        csv_data = (
+            "aluno,sem_letivo,curso,disciplina,periodo,nota,frequencia\n"
+            "Carlos Drumond,2024-1,Ciencia da Computacao,Estrutura de Dados,2,8.0,95.0\n"
+        )
+        file_payload = {
+            "file": ("planilha_professor.csv", io.BytesIO(csv_data.encode("utf-8")), "text/csv")
+        }
+        upload_resp = professor_client.post("/api/historical-data/upload", files=file_payload)
+        assert upload_resp.status_code == 200
+
+        admin_username = f"testadmin_scope_{_uid}"
+        db = SessionLocal()
+        try:
+            if not db.query(User).filter(User.username == admin_username).first():
+                db.add(User(
+                    username=admin_username,
+                    full_name="Admin Escopo",
+                    email=f"{admin_username}@test.com",
+                    hashed_password=hash_password("admin1234"),
+                    role=UserRole.ADMIN,
+                    is_active=True,
+                    is_approved=True,
+                ))
+                db.commit()
+        finally:
+            db.close()
+
+        login_resp = client.post("/api/auth/login", json={
+            "identifier": admin_username,
+            "password": "admin1234",
+        })
+        assert login_resp.status_code == 200
+
+        list_resp = client.get("/api/historical-data/spreadsheets")
+        assert list_resp.status_code == 200
+        assert list_resp.json()["global_summary"]["total_spreadsheets"] == 0
+        assert list_resp.json()["global_summary"]["total_records"] == 0
+
+        workspace_resp = client.get("/api/historical-data/analysis-workspace")
+        assert workspace_resp.status_code == 200
+        overview = workspace_resp.json()["overview"]
+        assert overview["total_records"] == 0
+        assert overview["total_students"] == 0
+
